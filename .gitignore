@@ -1,0 +1,13 @@
+# Build output (compiled app bundle / binary)
+build/
+
+# macOS cruft
+.DS_Store
+
+# A personal custom mascot override shouldn't be committed
+mascot-mask.png
+
+# Editors
+.vscode/
+.idea/
+*.swp
