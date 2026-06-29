@@ -21,6 +21,17 @@ swiftc -O \
 echo "==> Installing Info.plist…"
 cp Info.plist "${BUNDLE}/Contents/Info.plist"
 
+echo "==> Bundling hooks (for first-launch self-setup)…"
+cp hooks/cc-hook.sh hooks/setup-hooks.sh "${RES}/"
+chmod +x "${RES}/cc-hook.sh" "${RES}/setup-hooks.sh"
+
+if [ -f assets/AppIcon.icns ]; then
+  cp assets/AppIcon.icns "${RES}/AppIcon.icns"
+  echo "==> Bundled app icon"
+else
+  echo "    (no assets/AppIcon.icns yet — run ./make-icon.sh to generate it)"
+fi
+
 # Optional: drop a mascot-mask.png next to this script to override the drawn icon.
 if [ -f "mascot-mask.png" ]; then
   cp "mascot-mask.png" "${RES}/mascot-mask.png"

@@ -69,23 +69,41 @@ Quit                                              ⌘Q
 - 🧩 **Zero runtime deps** — one native AppKit binary; the hooks are plain bash + `jq`.
 - 🎨 **Yours to tweak** — drop in your own mascot, retune the decay timers, relocate the state dir.
 
-## Quick start
+## Install
 
-**Requirements:** macOS 13+ · Xcode Command Line Tools (`xcode-select --install`) · `jq` (`brew install jq`)
+Requires **macOS 13+**. The app wires up its Claude Code hooks on first launch (backing up
+`~/.claude/settings.json` first), so any of these just work:
+
+### 🍺 Homebrew (easiest)
+
+```bash
+brew install --cask mitchelmckee/tap/claude-traffic-light
+```
+
+`jq` is pulled in automatically. Then launch **Claude Traffic Light** from your Applications.
+
+### 💿 Download the DMG
+
+Grab the latest `.dmg` from [**Releases**](https://github.com/MitchelMckee/claude-traffic-light/releases/latest),
+open it, and drag the app to **Applications**. (Needs `jq` — `brew install jq`.)
+
+### 🔨 Build from source
 
 ```bash
 git clone https://github.com/MitchelMckee/claude-traffic-light.git
 cd claude-traffic-light
-
 ./build.sh                              # compile ClaudeTrafficLight.app
 ./install.sh                            # wire hooks into ~/.claude/settings.json (backs up first)
-open build/ClaudeTrafficLight.app       # run it
+open build/ClaudeTrafficLight.app
 ./autostart.sh                          # optional: also launch at login
 ```
 
-Restart any already-running Claude Code sessions so they pick up the hooks — new ones report
-immediately. The first time you click a session to focus its terminal, macOS asks for
-**Automation** (and, for Ghostty/Terminal window-raising, **Accessibility**) permission — grant
+> **First-launch Gatekeeper note:** the app isn't notarized (no paid Apple Developer cert), so
+> the first time you open a downloaded/brew-installed copy, **right-click it → Open** once. Or
+> skip the prompt with `brew install --cask --no-quarantine mitchelmckee/tap/claude-traffic-light`.
+
+After installing, restart any running Claude Code sessions so they pick up the hooks. The first
+time you click a session to focus its terminal, macOS asks for Automation/Accessibility — grant
 it once.
 
 > Alerts are posted via `osascript`, so macOS attributes them to **Script Editor**. If banners

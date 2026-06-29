@@ -39,6 +39,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timer = t
 
         refresh()
+        ensureHooksInstalled()
+    }
+
+    // MARK: first-launch setup (for DMG / Homebrew installs)
+
+    /// If the Claude hooks aren't wired yet (e.g. a fresh DMG/brew install),
+    /// run the bundled setup-hooks.sh once. A from-source `./install.sh` user
+    /// already has them, so this no-ops for them.
+    private func ensureHooksInstalled() {
+        let hookDst = ("~/.claude/hooks/cc-hook.sh" as NSString).expandingTildeInPath
+        if FileManager.default.fileExists(atPath: hookDst) { return }
+        guard let script = Bundle.main.path(forResource: "setup-hooks", ofType: "sh") else { return }
+
+        if !commandExists("jq") {
+            postBanner(title: "Claude Traffic Light needs jq",
+                       body: "Run  brew install jq  then relaunch the app.")
+            return
+        }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/bash")
+            p.arguments = [script]
+            p.environment = AppDelegate.augmentedEnv()
+            try? p.run()
+            p.waitUntilExit()
+            let ok = p.terminationStatus == 0
+            DispatchQueue.main.async {
+                self?.postBanner(
+                    title: ok ? "Claude Traffic Light is ready" : "Setup didn't finish",
+                    body: ok ? "Hooks installed — start a new Claude Code session to see it light up."
+                             : "Couldn't wire the Claude hooks. See the README to set up manually.")
+            }
+        }
+    }
+
+    private func commandExists(_ cmd: String) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "command -v \(cmd)"]
+        p.environment = AppDelegate.augmentedEnv()
+        p.standardOutput = nil
+        p.standardError = nil
+        do { try p.run(); p.waitUntilExit(); return p.terminationStatus == 0 } catch { return false }
+    }
+
+    /// GUI apps launched from Finder get a minimal PATH, so add the usual
+    /// Homebrew / system locations where jq etc. live.
+    static func augmentedEnv() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        let extra = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env["PATH"] = env["PATH"].map { "\($0):\(extra)" } ?? extra
+        return env
     }
 
     private var alertOnPermission: Bool { defaults.bool(forKey: "alertOnPermission") }
@@ -98,11 +150,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Play the sound in-process so the ping is instant, even if the banner
         // (a spawned osascript) takes a moment to appear.
         NSSound(named: NSSound.Name("Glass"))?.play()
+        postBanner(title: permission ? "Claude needs your input" : "Claude finished — your turn",
+                   body: s.label.isEmpty ? "A session is waiting." : s.label)
+    }
 
-        let title = permission ? "Claude needs your input" : "Claude finished — your turn"
-        let body = s.label.isEmpty ? "A session is waiting." : s.label
+    /// Post a macOS notification banner via osascript (works unsigned; macOS
+    /// attributes it to Script Editor).
+    private func postBanner(title: String, body: String) {
         // Escape (don't strip) for the AppleScript string literal: backslash
-        // first, then quote — keeps odd folder names intact and injection-safe.
+        // first, then quote — keeps odd text intact and injection-safe.
         let esc: (String) -> String = {
             $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         }

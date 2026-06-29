@@ -30,6 +30,16 @@ func renderStatusSamples(toDir dir: String) {
     save(statusImage(aggregate: sorted.first ?? .idle, states: sorted, height: H), "dot-strip")
 }
 
+/// Render a 1024px mascot PNG to use as the app-icon master (turned into
+/// AppIcon.icns by make-icon.sh).
+func renderAppIcon(toPath path: String) {
+    let img = mascotImage(color: NSColor.systemGreen, height: 1024)
+    guard let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+          let png = rep.representation(using: .png, properties: [:]) else { return }
+    try? png.write(to: URL(fileURLWithPath: path))
+    print("wrote app icon master: \(path)")
+}
+
 /// Headless check of the read -> decay -> aggregate pipeline. Prints what the
 /// menubar would show for the current contents of the state directory.
 func runSelfTest() {
