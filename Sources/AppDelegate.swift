@@ -32,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        for key in ["alertOnPermission", "alertOnFinished"] where defaults.object(forKey: key) == nil {
+        for key in ["alertOnPermission", "alertOnFinished", "showDots"] where defaults.object(forKey: key) == nil {
             defaults.set(true, forKey: key)
         }
 
@@ -121,6 +121,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private var alertOnPermission: Bool { defaults.bool(forKey: "alertOnPermission") }
     private var alertOnFinished: Bool { defaults.bool(forKey: "alertOnFinished") }
+    private var showDots: Bool { defaults.bool(forKey: "showDots") }
 
     // MARK: state -> icon + alerts (runs on every tick / fs change)
 
@@ -133,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let vibe = store.vibe(sessions, now: now)
         displayBody = vibe.color
         displayMood = vibe.mood
-        let overflow = max(0, displayStates.count - kMaxStatusDots)
+        let overflow = showDots ? max(0, displayStates.count - kMaxStatusDots) : 0
         statusItem.button?.title = overflow > 0 ? " +\(overflow)" : ""
 
         renderStatusBar(force: true)
@@ -147,12 +148,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// when nothing changed, so the 12 fps animation tick stays cheap.
     private func renderStatusBar(force: Bool) {
         let p = eyes.pose
+        let states = showDots ? displayStates : []      // dots off -> just the eyes
         let poseKey = "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))"
-        let sig = displayBody.colorKey + "#\(displayMood)#"
-                + displayStates.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
+        let sig = displayBody.colorKey + "#\(displayMood)#dots:\(showDots)#"
+                + states.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
         if !force && sig == lastStatusSig { return }
         lastStatusSig = sig
-        statusItem.button?.image = statusImage(body: displayBody, states: displayStates,
+        statusItem.button?.image = statusImage(body: displayBody, states: states,
                                                height: kMenubarHeight, pose: p, mood: displayMood)
     }
 
@@ -285,14 +287,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private func populate(_ menu: NSMenu, sessions: [SessionState], now: Double) {
         menu.removeAllItems()
 
-        if let u = update {
-            let item = NSMenuItem(title: "↑  Update available — v\(u.version)",
-                                  action: #selector(openUpdate), keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-            menu.addItem(.separator())
-        }
-
         var nWait = 0, nWork = 0, nReady = 0
         for s in sessions {
             switch store.effective(s, now: now) {
@@ -349,7 +343,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         finItem.state = alertOnFinished ? .on : .off
         menu.addItem(finItem)
 
+        let dotsItem = NSMenuItem(title: "Show per-shell dots", action: #selector(toggleDots), keyEquivalent: "")
+        dotsItem.target = self
+        dotsItem.state = showDots ? .on : .off
+        menu.addItem(dotsItem)
+
         menu.addItem(.separator())
+        if let u = update {
+            let item = NSMenuItem(title: "Update available — v\(u.version)",
+                                  action: #selector(openUpdate), keyEquivalent: "")
+            item.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "Update")
+            item.target = self
+            menu.addItem(item)
+        }
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
     }
@@ -396,6 +402,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     @objc private func toggleAlertFinished() {
         defaults.set(!alertOnFinished, forKey: "alertOnFinished")
+        refresh()
+    }
+
+    @objc private func toggleDots() {
+        defaults.set(!showDots, forKey: "showDots")
         refresh()
     }
 
