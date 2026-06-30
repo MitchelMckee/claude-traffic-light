@@ -8,7 +8,7 @@ APP_BIN="$(pwd)/build/ClaudeTrafficLight.app/Contents/MacOS/ClaudeTrafficLight"
 [ -x "$APP_BIN" ] || { echo "Build first:  ./build.sh"; exit 1; }
 
 LA_DIR="${HOME}/Library/LaunchAgents"
-PLIST="${LA_DIR}/com.mitchelmckee.claudetrafficlight.plist"
+PLIST="${LA_DIR}/com.mitchelmckee.claude-traffic-light.plist"
 mkdir -p "$LA_DIR"
 
 cat > "$PLIST" <<EOF
@@ -16,7 +16,7 @@ cat > "$PLIST" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.mitchelmckee.claudetrafficlight</string>
+  <key>Label</key><string>com.mitchelmckee.claude-traffic-light</string>
   <key>ProgramArguments</key><array><string>${APP_BIN}</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><false/>

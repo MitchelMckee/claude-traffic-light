@@ -311,9 +311,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     // MARK: notifications
 
-    /// Ask once for notification permission. When granted we post via
-    /// UNUserNotificationCenter so the banner uses OUR icon (the mascot) and
-    /// can show his current-mood face; otherwise we fall back to osascript.
+    /// Ask once for notification permission. With a valid signature + a unique
+    /// bundle id, macOS shows the prompt; once granted, UNUserNotificationCenter
+    /// notifications carry the app icon (the eyes). Falls back to osascript if denied.
     private func setUpNotifications() {
         guard Bundle.main.bundleIdentifier != nil else { return }   // UNUC requires a bundle id
         let center = UNUserNotificationCenter.current()
@@ -331,7 +331,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func notify(session s: SessionState, permission: Bool) {
-        // Instant in-process ping, regardless of which banner path we use.
         NSSound(named: NSSound.Name("Glass"))?.play()
         let title = permission ? "Claude needs your input" : "Claude finished — your turn"
         let body = s.label.isEmpty ? "A session is waiting." : s.label
@@ -349,27 +348,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         content.title = title
         content.body = body
         content.sound = nil                       // we already played the sound instantly
-        if let url = renderFaceAttachment(),
-           let att = try? UNNotificationAttachment(identifier: "face", url: url) {
-            content.attachments = [att]
-        }
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req)
     }
 
-    /// Render the mascot's current face to a temp PNG for the notification.
-    private func renderFaceAttachment() -> URL? {
-        let img = mascotImage(color: displayBody.color, height: 256,
-                              pose: EyePose(look: CGVector(dx: 0, dy: -0.08)), mood: displayMood)
-        guard let tiff = img.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { return nil }
-        let url = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cc-face-\(UUID().uuidString).png")
-        do { try png.write(to: url); return url } catch { return nil }
-    }
-
-    /// Fallback macOS banner via osascript (works unsigned; attributed to Script Editor).
+    /// Fallback macOS banner via osascript (used only if the user denies the
+    /// notification permission; attributed to Script Editor).
     private func postBanner(title: String, body: String) {
         // Escape (don't strip) for the AppleScript string literal: backslash
         // first, then quote — keeps odd text intact and injection-safe.

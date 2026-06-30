@@ -56,11 +56,50 @@ func renderStatusSamples(toDir dir: String) {
     save(statusImage(body: .working, states: sorted, height: H, mood: .stressed), "dot-strip")
 }
 
-/// Render a 1024px mascot PNG to use as the app-icon master (turned into
-/// AppIcon.icns by make-icon.sh).
+/// Render a 1024px app-icon master (turned into AppIcon.icns by make-icon.sh):
+/// a green squircle with the mascot's eyes, composed for the macOS icon grid.
 func renderAppIcon(toPath path: String) {
-    let pose = EyePose(look: CGVector(dx: 0, dy: -0.28))     // tall eyes glancing down
-    let img = mascotImage(color: NSColor.systemGreen, height: 1024, pose: pose, mood: .alert)
+    let S: CGFloat = 1024
+    let img = NSImage(size: NSSize(width: S, height: S))
+    img.lockFocus()
+    let ctx = NSGraphicsContext.current
+    ctx?.imageInterpolation = .high
+
+    // Squircle background inset with a margin (Big Sur icon grid: corner ≈ 22.37%).
+    let margin = S * 0.085
+    let rect = NSRect(x: margin, y: margin, width: S - 2 * margin, height: S - 2 * margin)
+    let squircle = NSBezierPath(roundedRect: rect, xRadius: rect.width * 0.2237, yRadius: rect.width * 0.2237)
+
+    ctx?.saveGraphicsState()
+    squircle.addClip()
+    let top = NSColor(srgbRed: 1.00, green: 0.86, blue: 0.25, alpha: 1)
+    let bottom = NSColor(srgbRed: 0.96, green: 0.72, blue: 0.05, alpha: 1)
+    NSGradient(starting: top, ending: bottom)?.draw(in: rect, angle: -90)
+    ctx?.restoreGraphicsState()
+
+    // Two white oval eyes with dark pupils, slightly above centre, looking a
+    // touch down. A soft shadow under each gives a little depth.
+    let eyeW = S * 0.215, eyeH = S * 0.315, gap = S * 0.052
+    let cy = S * 0.535
+    for cx in [S / 2 - gap / 2 - eyeW / 2, S / 2 + gap / 2 + eyeW / 2] {
+        let eyeRect = NSRect(x: cx - eyeW / 2, y: cy - eyeH / 2, width: eyeW, height: eyeH)
+        ctx?.saveGraphicsState()
+        let sh = NSShadow()
+        sh.shadowColor = NSColor.black.withAlphaComponent(0.20)
+        sh.shadowBlurRadius = S * 0.022
+        sh.shadowOffset = NSSize(width: 0, height: -S * 0.014)
+        sh.set()
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: eyeRect).fill()
+        ctx?.restoreGraphicsState()
+
+        let pupilW = eyeW * 0.54, pupilH = eyeW * 0.54 * (eyeH / eyeW)
+        let offY = -0.16 * (eyeH - pupilH) / 2
+        NSColor(white: 0.13, alpha: 1).setFill()
+        NSBezierPath(ovalIn: NSRect(x: cx - pupilW / 2, y: cy + offY - pupilH / 2, width: pupilW, height: pupilH)).fill()
+    }
+
+    img.unlockFocus()
     guard let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
           let png = rep.representation(using: .png, properties: [:]) else { return }
     try? png.write(to: URL(fileURLWithPath: path))

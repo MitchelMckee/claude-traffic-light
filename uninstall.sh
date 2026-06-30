@@ -34,7 +34,7 @@ fi
 rm -f "$HOOK_DST" && echo "==> Removed ${HOOK_DST}" || true
 rm -rf "$STATE_DIR" && echo "==> Removed ${STATE_DIR}" || true
 
-PLIST="${HOME}/Library/LaunchAgents/com.mitchelmckee.claudetrafficlight.plist"
+PLIST="${HOME}/Library/LaunchAgents/com.mitchelmckee.claude-traffic-light.plist"
 if [ -f "$PLIST" ]; then
   launchctl unload "$PLIST" 2>/dev/null || true
   rm -f "$PLIST"
