@@ -17,6 +17,17 @@ if let i = CommandLine.arguments.firstIndex(of: "--appicon"), i + 1 < CommandLin
     exit(0)
 }
 
+if let i = CommandLine.arguments.firstIndex(of: "--checkupdate"), i + 1 < CommandLine.arguments.count {
+    let sem = DispatchSemaphore(value: 0)
+    UpdateChecker().check(currentVersion: CommandLine.arguments[i + 1]) { result in
+        if let r = result { print("update available: v\(r.version) -> \(r.url)") }
+        else { print("up to date") }
+        sem.signal()
+    }
+    sem.wait()
+    exit(0)
+}
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

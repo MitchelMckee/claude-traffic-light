@@ -14,6 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var displayMood: Mood = .chill
     private var displayStates: [EffectiveState] = []
 
+    private let updates = UpdateChecker()
+    private var update: (version: String, url: URL)?
+    private var updateTimer: Timer?
+
     private var lastStatusSig = ""
     private var currentSessions: [SessionState] = []
 
@@ -53,6 +57,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         RunLoop.main.add(anim, forMode: .common)
         animTimer = anim
+
+        // Check for a newer release on launch, then every 6 hours.
+        checkForUpdates()
+        let upd = Timer(timeInterval: 6 * 3600, repeats: true) { [weak self] _ in self?.checkForUpdates() }
+        RunLoop.main.add(upd, forMode: .common)
+        updateTimer = upd
 
         refresh()
         ensureHooksInstalled()
@@ -250,6 +260,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
     }
 
+    // MARK: updates
+
+    private func checkForUpdates() {
+        let current = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0"
+        updates.check(currentVersion: current) { [weak self] result in
+            DispatchQueue.main.async { self?.update = result }
+        }
+    }
+
+    @objc private func openUpdate() {
+        if let url = update?.url { NSWorkspace.shared.open(url) }
+    }
+
     // MARK: menu
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -261,6 +284,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private func populate(_ menu: NSMenu, sessions: [SessionState], now: Double) {
         menu.removeAllItems()
+
+        if let u = update {
+            let item = NSMenuItem(title: "↑  Update available — v\(u.version)",
+                                  action: #selector(openUpdate), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
 
         var nWait = 0, nWork = 0, nReady = 0
         for s in sessions {
