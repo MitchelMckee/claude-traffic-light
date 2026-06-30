@@ -24,6 +24,14 @@ struct SessionState: Codable {
     let updatedAt: Double   // epoch seconds
 }
 
+/// The mascot's mood, driven by how the fleet of shells is doing.
+enum Mood: Hashable {
+    case chill       // mostly ready/green — relaxed
+    case alert       // a shell needs you — attentive
+    case pressure    // one shell working — focused, a bit tense
+    case stressed    // multiple shells working — overwhelmed / sad
+}
+
 /// What the app actually displays after applying time-based decay.
 enum EffectiveState {
     case working      // green

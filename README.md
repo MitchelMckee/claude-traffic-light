@@ -17,7 +17,8 @@ it's working, yellow when it needs you, and green when it's done** — for all y
 once. No more hunting through tabs to find the one stuck on a permission prompt.
 
 It's a single ~200 KB native binary with **zero runtime dependencies** — the state comes
-straight from Claude Code's own hooks.
+straight from Claude Code's own hooks. (And yes — his eyes glance around and blink, and he gets
+visibly stressed when too many sessions are hammering away.)
 
 ## The idea
 
@@ -59,11 +60,21 @@ Claude   ·   1 needs you   ·   3 working   ·   2 ready
 Quit                                              ⌘Q
 ```
 
+## He has moods
+
+The body turns whatever color **most** of your shells are in, and his mood is all in the eyes —
+which simply **squish**: round and calm when things are quiet, popped tall when a session needs
+you, narrowed under load, and squished flat when everything's running at once:
+
+<p align="center">
+  <img src="assets/moods.png" width="540" alt="The mascot chill, alert, under pressure, and stressed">
+</p>
+
 ## Features
 
 - 🎯 **One glanceable icon** — aggregate state across all sessions, most-urgent wins.
 - 👀 **Per-shell dot strip** — see each session's state without opening anything.
-- ⚡ **Instant alerts** — sound + banner the moment a session is blocked or finishes (each is a separate toggle).
+- ⚡ **Instant alerts** — sound + banner (showing the mascot's current face) the moment a session is blocked or finishes; each is a separate toggle.
 - 🖱️ **Click to focus** — jump to a session's terminal (precise on iTerm2 / Terminal / tmux; best-effort on Ghostty).
 - 🏷️ **Labeled by project** — sessions are named by their working directory, de-duplicated when they collide.
 - 🧩 **Zero runtime deps** — one native AppKit binary; the hooks are plain bash + `jq`.

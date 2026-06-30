@@ -89,4 +89,33 @@ final class StateStore {
         if effs.contains(where: { if case .finished   = $0 { return true }; return false }) { return .finished }
         return .idle
     }
+
+    /// The mascot's body color + mood. Body color follows the state the *most*
+    /// shells are in (ties resolve toward the more urgent). Mood reflects how
+    /// hard the mascot is being worked.
+    func vibe(_ sessions: [SessionState], now: Double = Date().timeIntervalSince1970) -> (color: EffectiveState, mood: Mood) {
+        var working = 0, permission = 0, ready = 0
+        for s in sessions {
+            switch effective(s, now: now) {
+            case .working:         working += 1
+            case .permission:      permission += 1
+            case .finished, .idle: ready += 1
+            }
+        }
+
+        let maxc = max(working, max(permission, ready))
+        let color: EffectiveState
+        if maxc == 0               { color = .idle }
+        else if permission == maxc { color = .permission }   // tie-break toward urgent
+        else if working == maxc    { color = .working }
+        else                       { color = .idle }
+
+        let mood: Mood
+        if working >= 2          { mood = .stressed }
+        else if working == 1     { mood = .pressure }
+        else if permission >= 1  { mood = .alert }
+        else                     { mood = .chill }
+
+        return (color, mood)
+    }
 }

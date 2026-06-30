@@ -1,12 +1,18 @@
 import AppKit
+import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = StateStore()
     private let menu = NSMenu()
 
     private var watcher: DirectoryWatcher?
     private var timer: Timer?
+    private var animTimer: Timer?
+    private let eyes = EyeAnimator()
+    private var displayBody: EffectiveState = .idle
+    private var displayMood: Mood = .chill
+    private var displayStates: [EffectiveState] = []
 
     private var lastStatusSig = ""
     private var currentSessions: [SessionState] = []
@@ -15,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // episode we alerted on, so a new turn re-arms the alert.
     private var alertedAt: [String: Double] = [:]
     private let alertDwell: TimeInterval = 0    // fire the instant a turn finishes (raise to debounce quick turns)
+    private var notifReady = false              // UNUserNotificationCenter authorized -> show the mascot face
 
     private let defaults = UserDefaults.standard
 
@@ -26,9 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         store.ensureDir()
+        setUpNotifications()
         menu.delegate = self
         statusItem.menu = menu
-        statusItem.button?.image = mascotImage(color: EffectiveState.idle.color)
+        statusItem.button?.image = mascotImage(color: EffectiveState.idle.color, height: kMenubarHeight)
         statusItem.button?.imagePosition = .imageLeft   // image (mascot+dots), then any "+N" title
         statusItem.button?.toolTip = "Claude Code traffic light"
 
@@ -37,6 +45,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
         RunLoop.main.add(t, forMode: .common)   // keep ticking even while the menu is open
         timer = t
+
+        // Animate the mascot's eyes (~12 fps; only redraws while something moves).
+        let anim = Timer(timeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if self.eyes.tick(mood: self.displayMood) { self.renderStatusBar(force: false) }
+        }
+        RunLoop.main.add(anim, forMode: .common)
+        animTimer = anim
 
         refresh()
         ensureHooksInstalled()
@@ -103,20 +119,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let sessions = store.loadSessions(now: now)
         currentSessions = sessions
 
-        let states = sessions.map { store.effective($0, now: now) }.sorted { $0.urgency < $1.urgency }
-        let agg = store.aggregate(sessions, now: now)
-        let overflow = max(0, states.count - kMaxStatusDots)
-        let sig = agg.colorKey + "#" + states.map { $0.colorKey }.joined(separator: ",")
-        if sig != lastStatusSig {
-            statusItem.button?.image = statusImage(aggregate: agg, states: states)
-            statusItem.button?.title = overflow > 0 ? " +\(overflow)" : ""
-            lastStatusSig = sig
-        }
+        displayStates = sessions.map { store.effective($0, now: now) }.sorted { $0.urgency < $1.urgency }
+        let vibe = store.vibe(sessions, now: now)
+        displayBody = vibe.color
+        displayMood = vibe.mood
+        let overflow = max(0, displayStates.count - kMaxStatusDots)
+        statusItem.button?.title = overflow > 0 ? " +\(overflow)" : ""
 
+        renderStatusBar(force: true)
         handleAlerts(sessions: sessions, now: now)
         // NOTE: never rebuild `menu` while it's open — mutating an open NSMenu
         // (removeAllItems + re-add) leaves a stuck blank gap. The menu is rebuilt
         // fresh each time it opens via menuNeedsUpdate(_:), which is enough.
+    }
+
+    /// Redraw the menu-bar icon for the current state + eye pose; skips the work
+    /// when nothing changed, so the 12 fps animation tick stays cheap.
+    private func renderStatusBar(force: Bool) {
+        let p = eyes.pose
+        let poseKey = "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))"
+        let sig = displayBody.colorKey + "#\(displayMood)#"
+                + displayStates.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
+        if !force && sig == lastStatusSig { return }
+        lastStatusSig = sig
+        statusItem.button?.image = statusImage(body: displayBody, states: displayStates,
+                                               height: kMenubarHeight, pose: p, mood: displayMood)
     }
 
     private func handleAlerts(sessions: [SessionState], now: Double) {
@@ -146,16 +173,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for key in alertedAt.keys where !live.contains(key) { alertedAt[key] = nil }
     }
 
-    private func notify(session s: SessionState, permission: Bool) {
-        // Play the sound in-process so the ping is instant, even if the banner
-        // (a spawned osascript) takes a moment to appear.
-        NSSound(named: NSSound.Name("Glass"))?.play()
-        postBanner(title: permission ? "Claude needs your input" : "Claude finished — your turn",
-                   body: s.label.isEmpty ? "A session is waiting." : s.label)
+    // MARK: notifications
+
+    /// Ask once for notification permission. When granted we post via
+    /// UNUserNotificationCenter so the banner uses OUR icon (the mascot) and
+    /// can show his current-mood face; otherwise we fall back to osascript.
+    private func setUpNotifications() {
+        guard Bundle.main.bundleIdentifier != nil else { return }   // UNUC requires a bundle id
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert]) { [weak self] granted, _ in
+            DispatchQueue.main.async { self?.notifReady = granted }
+        }
     }
 
-    /// Post a macOS notification banner via osascript (works unsigned; macOS
-    /// attributes it to Script Editor).
+    // Show banners even though we're a background (accessory) app.
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner])
+    }
+
+    private func notify(session s: SessionState, permission: Bool) {
+        // Instant in-process ping, regardless of which banner path we use.
+        NSSound(named: NSSound.Name("Glass"))?.play()
+        let title = permission ? "Claude needs your input" : "Claude finished — your turn"
+        let body = s.label.isEmpty ? "A session is waiting." : s.label
+        if notifReady {
+            postOwnNotification(title: title, body: body)
+        } else {
+            postBanner(title: title, body: body)
+        }
+    }
+
+    /// Post via UNUserNotificationCenter — uses the app icon (the mascot) and
+    /// attaches a snapshot of his current face/mood.
+    private func postOwnNotification(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = nil                       // we already played the sound instantly
+        if let url = renderFaceAttachment(),
+           let att = try? UNNotificationAttachment(identifier: "face", url: url) {
+            content.attachments = [att]
+        }
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req)
+    }
+
+    /// Render the mascot's current face to a temp PNG for the notification.
+    private func renderFaceAttachment() -> URL? {
+        let img = mascotImage(color: displayBody.color, height: 256,
+                              pose: EyePose(look: CGVector(dx: 0, dy: -0.08)), mood: displayMood)
+        guard let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cc-face-\(UUID().uuidString).png")
+        do { try png.write(to: url); return url } catch { return nil }
+    }
+
+    /// Fallback macOS banner via osascript (works unsigned; attributed to Script Editor).
     private func postBanner(title: String, body: String) {
         // Escape (don't strip) for the AppleScript string literal: backslash
         // first, then quote — keeps odd text intact and injection-safe.

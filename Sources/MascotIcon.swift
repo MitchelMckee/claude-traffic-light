@@ -1,35 +1,108 @@
 import AppKit
 
-/// Draws the little "Claude bot" mascot tinted by the given color, sized for
-/// the menubar. Drawn in code so there is no asset to ship and the tint is
-/// exact. If `~/.claude/menubar-state/mascot-mask.png` (or a `mascot-mask.png`
-/// next to the executable) exists, it is used as an alpha mask instead, so you
-/// can drop in your own silhouette and have it recolored by state.
-func mascotImage(color: NSColor, height: CGFloat = 18) -> NSImage {
-    if let mask = loadMascotMask() {
-        return tinted(mask, color: color, height: height)
-    }
-    return drawMascot(color: color, height: height)
-}
+/// Menu-bar icon height — fill the whole bar so the mascot is as big as macOS allows.
+let kMenubarHeight: CGFloat = NSStatusBar.system.thickness
 
 /// Up to this many per-shell dots are drawn; the rest become a "+N" title.
 let kMaxStatusDots = 6
 
-/// The status-bar image: the mascot (tinted by the aggregate state) followed by
-/// one small dot per shell, sorted most-urgent first and grouped by color so you
-/// can count each state at a glance. With a single shell it's just the mascot.
-/// Overflow past `kMaxStatusDots` is shown as a "+N" button title (drawn by
-/// AppKit so it adapts to a light/dark menubar), not baked into this image.
-///
-/// `states` must already be sorted by urgency; `aggregate` tints the mascot.
-func statusImage(aggregate: EffectiveState, states: [EffectiveState], height: CGFloat = 18) -> NSImage {
-    let mascot = mascotImage(color: aggregate.color, height: height)
+/// Where the mascot is looking, and whether he's mid-blink.
+struct EyePose {
+    var look: CGVector = .zero   // pupil offset; each axis in [-1, 1], +dy = up
+    var blink: CGFloat = 0       // 0 = open, 1 = closed
+    static let neutral = EyePose()
+}
+
+/// The ONLY expressive tool: how tall the eyes are (1 = round, <1 squished
+/// flat, >1 stretched tall). Everything else is off-limits — the face is just
+/// two circles, each with a circle inside.
+private func eyeHeightFactor(_ mood: Mood) -> CGFloat {
+    switch mood {
+    case .alert:    return 1.70   // tall — wide awake
+    case .chill:    return 1.00   // round — relaxed
+    case .pressure: return 0.58   // squished — strained
+    case .stressed: return 0.30   // flat — drained
+    }
+}
+
+/// Draws the mascot: a colored blob with two eyes (each a circle containing a
+/// circle). Mood only changes the eyes' height. A `mascot-mask.png` override,
+/// if present, is used instead.
+func mascotImage(color: NSColor, height: CGFloat = 22,
+                 pose: EyePose = .neutral, mood: Mood = .chill) -> NSImage {
+    if let mask = loadMascotMask() {
+        return tinted(mask, color: color, height: height)
+    }
+    return drawMascot(color: color, height: height, pose: pose, mood: mood)
+}
+
+private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mood) -> NSImage {
+    let size = NSSize(width: height, height: height)
+    let img = NSImage(size: size)
+    img.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
+
+    let inset = height * 0.035
+    let rect = NSRect(x: inset, y: inset, width: height - inset * 2, height: height - inset * 2)
+
+    // Body: a soft rounded blob, filling most of the icon.
+    let radius = rect.width * 0.42
+    let body = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+    color.setFill()
+    body.fill()
+    NSColor.black.withAlphaComponent(0.28).setStroke()
+    body.lineWidth = max(0.75, height * 0.04)
+    body.stroke()
+
+    // Two big eyes that dominate the face. Mood squishes their height; that's
+    // the whole repertoire.
+    let eyeW = rect.width * 0.41
+    let gap  = rect.width * 0.08
+    let cy   = rect.minY + rect.height * 0.50
+    let hf   = eyeHeightFactor(mood)
+    drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: pose)
+    drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: pose)
+
+    img.unlockFocus()
+    img.isTemplate = false
+    return img
+}
+
+private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose: EyePose) {
+    let open = max(0, 1 - pose.blink)                  // blink is just a hard squish
+    let eyeH = max(eyeW * 0.05, eyeW * hf * open)
+
+    // Eye (a circle, squished to an ellipse).
+    let eyeRect = NSRect(x: cx - eyeW / 2, y: cy - eyeH / 2, width: eyeW, height: eyeH)
+    let eye = NSBezierPath(ovalIn: eyeRect)
+    NSColor.white.setFill()
+    eye.fill()
+    NSColor.black.withAlphaComponent(0.30).setStroke()   // thin edge so white reads on any body color
+    eye.lineWidth = max(0.5, eyeW * 0.05)
+    eye.stroke()
+
+    // Pupil (a circle inside, squished with the eye, moved by the glance).
+    let pupilW = eyeW * 0.55
+    let pupilH = pupilW * (eyeH / eyeW)
+    let maxOffX = max(0, (eyeW - pupilW) / 2 * 0.82)
+    let maxOffY = max(0, (eyeH - pupilH) / 2 * 0.82)
+    let px = cx + pose.look.dx * maxOffX
+    let py = cy + pose.look.dy * maxOffY
+    NSColor(white: 0.13, alpha: 1).setFill()
+    NSBezierPath(ovalIn: NSRect(x: px - pupilW / 2, y: py - pupilH / 2, width: pupilW, height: pupilH)).fill()
+}
+
+/// The status-bar image: the mascot (body tinted by `body`, expressing `mood`)
+/// followed by one small dot per shell, sorted most-urgent first.
+func statusImage(body: EffectiveState, states: [EffectiveState],
+                 height: CGFloat = kMenubarHeight, pose: EyePose = .neutral, mood: Mood = .chill) -> NSImage {
+    let mascot = mascotImage(color: body.color, height: height, pose: pose, mood: mood)
     guard states.count >= 2 else { return mascot }
 
-    let dotD     = (height * 0.40).rounded()
-    let dotGap   = max(1, (dotD * 0.40).rounded())   // gap within a color group
-    let groupGap = max(2, (dotD * 0.95).rounded())   // wider gap between color groups
-    let lead     = (height * 0.24).rounded()         // gap between mascot and first dot
+    let dotD     = (height * 0.38).rounded()
+    let dotGap   = max(1, (dotD * 0.40).rounded())
+    let groupGap = max(2, (dotD * 0.95).rounded())
+    let lead     = (height * 0.22).rounded()
 
     let shown = Array(states.prefix(kMaxStatusDots))
 
@@ -54,52 +127,13 @@ func statusImage(aggregate: EffectiveState, states: [EffectiveState], height: CG
     k = nil
     for i in shown.indices {
         x += gapBefore(i, &k)
-        let rect = NSRect(x: x, y: dotY, width: dotD, height: dotD)
+        let r = NSRect(x: x, y: dotY, width: dotD, height: dotD)
         shown[i].color.setFill()
-        NSBezierPath(ovalIn: rect).fill()
+        NSBezierPath(ovalIn: r).fill()
         NSColor.black.withAlphaComponent(0.22).setStroke()
-        let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.25, dy: 0.25)); ring.lineWidth = 0.5; ring.stroke()
+        let ring = NSBezierPath(ovalIn: r.insetBy(dx: 0.25, dy: 0.25)); ring.lineWidth = 0.5; ring.stroke()
         x += dotD
     }
-
-    img.unlockFocus()
-    img.isTemplate = false
-    return img
-}
-
-private func drawMascot(color: NSColor, height: CGFloat) -> NSImage {
-    let size = NSSize(width: height, height: height)
-    let img = NSImage(size: size)
-    img.lockFocus()
-    NSGraphicsContext.current?.imageInterpolation = .high
-
-    let inset = height * 0.12
-    let rect = NSRect(x: inset, y: inset, width: height - inset * 2, height: height - inset * 2)
-
-    // Rounded "squircle" body.
-    let radius = rect.width * 0.34
-    let body = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-    color.setFill()
-    body.fill()
-
-    // Thin outline so it reads on both light and dark menubars.
-    NSColor.black.withAlphaComponent(0.30).setStroke()
-    body.lineWidth = max(0.75, height * 0.05)
-    body.stroke()
-
-    // Two eyes -> reads as a friendly little guy at a glance.
-    let eyeW = rect.width * 0.17
-    let eyeH = rect.height * 0.24
-    let eyeY = rect.minY + rect.height * 0.44
-    let leftX = rect.minX + rect.width * 0.26
-    let rightX = rect.minX + rect.width * 0.57
-    NSColor.white.setFill()
-    NSBezierPath(ovalIn: NSRect(x: leftX, y: eyeY, width: eyeW, height: eyeH)).fill()
-    NSBezierPath(ovalIn: NSRect(x: rightX, y: eyeY, width: eyeW, height: eyeH)).fill()
-    NSColor.black.withAlphaComponent(0.55).setFill()
-    let pupilW = eyeW * 0.5, pupilH = eyeH * 0.5
-    NSBezierPath(ovalIn: NSRect(x: leftX + eyeW * 0.28, y: eyeY + eyeH * 0.2, width: pupilW, height: pupilH)).fill()
-    NSBezierPath(ovalIn: NSRect(x: rightX + eyeW * 0.28, y: eyeY + eyeH * 0.2, width: pupilW, height: pupilH)).fill()
 
     img.unlockFocus()
     img.isTemplate = false

@@ -15,7 +15,7 @@ mkdir -p "$MACOS" "$RES"
 echo "==> Compiling Swift sources…"
 swiftc -O \
   Sources/*.swift \
-  -framework AppKit -framework Foundation \
+  -framework AppKit -framework Foundation -framework UserNotifications \
   -o "${MACOS}/${APP}"
 
 echo "==> Installing Info.plist…"
