@@ -14,6 +14,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var displayMood: Mood = .chill
     private var displayStates: [EffectiveState] = []
 
+    private var lastActivityAt = Date().timeIntervalSince1970
+    private let napAfter: TimeInterval = 120     // everything calm this long -> sleepy
+    private var prevKind: [String: Int] = [:]    // sessionId -> state kind, for event reactions
+    private var celebrated = false               // the "all clear" reaction fired once
+    private var cursorEngaged = false            // hysteresis for cursor-follow proximity
+    private var alertsArmed = false              // suppress notification re-dings on launch
+
+    private var displayColor: NSColor = EffectiveState.idle.color
+    private var fadeFrom: NSColor = EffectiveState.idle.color
+    private var fadeT: CGFloat = 1               // 1 = settled on the target color
+    private var prevColorKey = ""                // empty -> first refresh snaps (no fade)
+    private let fadeStep: CGFloat = 0.25         // ~0.33s body cross-fade at 12 fps
+
     private let updates = UpdateChecker()
     private var update: (version: String, url: URL)?
     private var updateTimer: Timer?
@@ -53,7 +66,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // Animate the mascot's eyes (~12 fps; only redraws while something moves).
         let anim = Timer(timeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.eyes.tick(mood: self.displayMood) { self.renderStatusBar(force: false) }
+            let target = self.cursorTarget()
+            self.eyes.lookTarget = target
+            if target != nil { self.lastActivityAt = Date().timeIntervalSince1970 }  // engaging keeps it awake
+            let nap = target == nil && self.displayMood == .chill
+                && Date().timeIntervalSince1970 - self.lastActivityAt > self.napAfter
+            if nap != self.eyes.drowsy {
+                self.eyes.drowsy = nap
+                // a queued event reaction already wakes it; don't overwrite that with .wake
+                if !nap && !self.eyes.hasPendingReaction { self.eyes.react(.wake) }
+            }
+            let eyesMoved = self.eyes.tick(mood: self.displayMood)
+            let fading = self.advanceColorFade()
+            if eyesMoved || fading { self.renderStatusBar(force: false) }
         }
         RunLoop.main.add(anim, forMode: .common)
         animTimer = anim
@@ -75,7 +100,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// already has them, so this no-ops for them.
     private func ensureHooksInstalled() {
         let hookDst = ("~/.claude/hooks/cc-hook.sh" as NSString).expandingTildeInPath
-        if FileManager.default.fileExists(atPath: hookDst) { return }
+
+        // Already wired up: refresh just the hook script when the bundled copy
+        // changed (e.g. an app update fixed a bug), without re-touching settings.json.
+        if FileManager.default.fileExists(atPath: hookDst) {
+            if let src = Bundle.main.path(forResource: "cc-hook", ofType: "sh"),
+               !filesEqual(src, hookDst),
+               let data = try? Data(contentsOf: URL(fileURLWithPath: src)) {
+                try? data.write(to: URL(fileURLWithPath: hookDst))
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookDst)
+            }
+            return
+        }
+
         guard let script = Bundle.main.path(forResource: "setup-hooks", ofType: "sh") else { return }
 
         if !commandExists("jq") {
@@ -98,6 +135,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                              : "Couldn't wire the Claude hooks. See the README to set up manually.")
             }
         }
+    }
+
+    private func filesEqual(_ a: String, _ b: String) -> Bool {
+        let fm = FileManager.default
+        guard let da = fm.contents(atPath: a), let db = fm.contents(atPath: b) else { return false }
+        return da == db
     }
 
     private func commandExists(_ cmd: String) -> Bool {
@@ -134,6 +177,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let vibe = store.vibe(sessions, now: now)
         displayBody = vibe.color
         displayMood = vibe.mood
+        if prevColorKey.isEmpty {
+            displayColor = displayBody.color; fadeT = 1            // first paint: no fade
+        } else if displayBody.colorKey != prevColorKey {
+            fadeFrom = displayColor; fadeT = 0                     // fade from what's shown now
+        }
+        prevColorKey = displayBody.colorKey
+        reactToTransitions(sessions: sessions, now: now)
         let overflow = showDots ? max(0, displayStates.count - kMaxStatusDots) : 0
         statusItem.button?.title = overflow > 0 ? " +\(overflow)" : ""
 
@@ -144,18 +194,91 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // fresh each time it opens via menuNeedsUpdate(_:), which is enough.
     }
 
+    // MARK: personality
+
+    /// A look vector toward the mouse when it's near the menu-bar icon, else nil.
+    private func cursorTarget() -> CGVector? {
+        guard let win = statusItem.button?.window else { cursorEngaged = false; return nil }
+        let icon = CGPoint(x: win.frame.midX, y: win.frame.midY)
+        let m = NSEvent.mouseLocation                     // screen coords, bottom-left origin
+        let dx = m.x - icon.x, dy = m.y - icon.y
+        let threshold: CGFloat = cursorEngaged ? 290 : 230   // hysteresis: no flapping at the boundary
+        guard hypot(dx, dy) < threshold else { cursorEngaged = false; return nil }
+        cursorEngaged = true
+        let scale: CGFloat = 150
+        return CGVector(dx: max(-1, min(1, dx / scale)), dy: max(-1, min(1, dy / scale)))
+    }
+
+    private func kindCode(_ e: EffectiveState) -> Int {
+        switch e {
+        case .working:    return 1
+        case .permission: return 2
+        case .finished:   return 3
+        case .idle:       return 0
+        }
+    }
+
+    /// Fire one-shot eye reactions on state changes, and keep `lastActivityAt`
+    /// fresh so the mascot only naps when truly nothing is happening.
+    private func reactToTransitions(sessions: [SessionState], now: Double) {
+        var newKind: [String: Int] = [:]
+        var newPermission = false, newFinished = false
+        for s in sessions {
+            let k = kindCode(store.effective(s, now: now))
+            newKind[s.sessionId] = k
+            let old = prevKind[s.sessionId]
+            if old != k {
+                lastActivityAt = now
+                if k == 2, old != nil { newPermission = true }  // -> needs you (not a pre-existing one at launch)
+                if k == 3, old != nil { newFinished = true }    // -> turn finished
+            }
+        }
+        if Set(newKind.keys) != Set(prevKind.keys) { lastActivityAt = now }   // a session came/went
+
+        let allReady = !sessions.isEmpty && newKind.values.allSatisfy { $0 == 0 || $0 == 3 }
+        let hadWork = prevKind.values.contains { $0 == 1 || $0 == 2 }
+        let celebrateNow = allReady && hadWork && !celebrated
+        if !allReady { celebrated = false }
+
+        if newPermission      { eyes.react(.alert) }            // "hey, look at me"
+        else if celebrateNow  { eyes.react(.celebrate); celebrated = true }
+        else if newFinished   { eyes.react(.happy) }
+
+        prevKind = newKind
+    }
+
+    /// Advance the body-color cross-fade; returns true while still fading.
+    private func advanceColorFade() -> Bool {
+        guard fadeT < 1 else { return false }
+        fadeT = min(1, fadeT + fadeStep)
+        displayColor = blend(fadeFrom, displayBody.color, fadeT)
+        return true
+    }
+
+    private func blend(_ a: NSColor, _ b: NSColor, _ t: CGFloat) -> NSColor {
+        let from = a.usingColorSpace(.sRGB) ?? a
+        let to = b.usingColorSpace(.sRGB) ?? b
+        return from.blended(withFraction: t, of: to) ?? to
+    }
+
     /// Redraw the menu-bar icon for the current state + eye pose; skips the work
     /// when nothing changed, so the 12 fps animation tick stays cheap.
     private func renderStatusBar(force: Bool) {
         let p = eyes.pose
         let states = showDots ? displayStates : []      // dots off -> just the eyes
-        let poseKey = "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))"
-        let sig = displayBody.colorKey + "#\(displayMood)#dots:\(showDots)#"
+        // A mask override ignores pose/mood, so keep them out of the dedup key
+        // then — the eye animation must not force needless re-tints.
+        let masked = hasMascotMask()
+        let poseKey = masked ? "mask"
+            : "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))/\(Int(p.converge * 18))"
+        let moodKey = masked ? "" : "\(displayMood)"
+        let sig = displayBody.colorKey + "#\(moodKey)#dots:\(showDots)#fade:\(Int(fadeT * 50))#"
                 + states.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
         if !force && sig == lastStatusSig { return }
         lastStatusSig = sig
         statusItem.button?.image = statusImage(body: displayBody, states: states,
-                                               height: kMenubarHeight, pose: p, mood: displayMood)
+                                               height: kMenubarHeight, pose: p, mood: displayMood,
+                                               bodyColor: displayColor)
     }
 
     private func handleAlerts(sessions: [SessionState], now: Double) {
@@ -178,11 +301,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
             if due && alertedAt[s.sessionId] != s.updatedAt {
                 alertedAt[s.sessionId] = s.updatedAt
-                notify(session: s, permission: isPermission)
+                if alertsArmed { notify(session: s, permission: isPermission) }  // first pass: seed without re-dinging
             }
             if !eff.needsAttention { alertedAt[s.sessionId] = nil } // episode ended -> re-arm
         }
         for key in alertedAt.keys where !live.contains(key) { alertedAt[key] = nil }
+        alertsArmed = true   // only ding for episodes that begin while we're running
     }
 
     // MARK: notifications

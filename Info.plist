@@ -2,23 +2,29 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>               <string>ClaudeTrafficLight</string>
-  <key>CFBundleDisplayName</key>        <string>Claude Traffic Light</string>
-  <key>CFBundleIdentifier</key>         <string>com.mitchelmckee.claudetrafficlight</string>
-  <key>CFBundleVersion</key>            <string>4</string>
-  <key>CFBundleShortVersionString</key> <string>1.2.1</string>
-  <key>CFBundleExecutable</key>         <string>ClaudeTrafficLight</string>
-  <key>CFBundleIconFile</key>           <string>AppIcon</string>
-  <key>CFBundlePackageType</key>        <string>APPL</string>
-  <key>LSMinimumSystemVersion</key>     <string>13.0</string>
-  <key>NSPrincipalClass</key>           <string>NSApplication</string>
-
-  <!-- Menubar-only: no Dock icon, no main window. -->
-  <key>LSUIElement</key>                <true/>
-
-  <!-- Shown when the app drives other apps (focus-on-click via AppleScript /
-       System Events). macOS requires a usage string for Apple Events. -->
-  <key>NSAppleEventsUsageDescription</key>
-  <string>Claude Traffic Light brings a session's terminal window to the front when you click it.</string>
+	<key>CFBundleDisplayName</key>
+	<string>Claude Traffic Light</string>
+	<key>CFBundleExecutable</key>
+	<string>ClaudeTrafficLight</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.mitchelmckee.claudetrafficlight</string>
+	<key>CFBundleName</key>
+	<string>ClaudeTrafficLight</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.3.0</string>
+	<key>CFBundleVersion</key>
+	<string>5</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Claude Traffic Light brings a session's terminal window to the front when you click it.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 </dict>
 </plist>

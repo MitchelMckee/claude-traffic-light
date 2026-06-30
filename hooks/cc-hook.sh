@@ -20,13 +20,14 @@ PAYLOAD="$(cat)"
 HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
 
 # --- parse the hook payload (one jq call, or a sed fallback) ----------------
-EVENT=""; SESSION=""; CWD=""; SOURCE=""
+EVENT=""; SESSION=""; CWD=""; SOURCE=""; NTYPE=""; MESSAGE=""
 if [ "$HAVE_JQ" = 1 ]; then
   # @sh shell-quotes every value, so this eval is injection-safe.
-  eval "$(printf '%s' "$PAYLOAD" | jq -r '@sh "EVENT=\(.hook_event_name // "") SESSION=\(.session_id // "") CWD=\(.cwd // "") SOURCE=\(.source // "")"' 2>/dev/null)"
+  eval "$(printf '%s' "$PAYLOAD" | jq -r '@sh "EVENT=\(.hook_event_name // "") SESSION=\(.session_id // "") CWD=\(.cwd // "") SOURCE=\(.source // "") NTYPE=\(.notification_type // "") MESSAGE=\(.message // "")"' 2>/dev/null)"
 else
   _g() { printf '%s' "$PAYLOAD" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1; }
   EVENT="$(_g hook_event_name)"; SESSION="$(_g session_id)"; CWD="$(_g cwd)"; SOURCE="$(_g source)"
+  NTYPE="$(_g notification_type)"; MESSAGE="$(_g message)"
 fi
 
 [ -n "$SESSION" ] || exit 0
@@ -77,15 +78,25 @@ case "$EVENT" in
   Stop)             STATE="finished"; REASON="finished — your turn" ;;
   SubagentStop)     exit 0 ;;                       # subagent done; main agent still working
   Notification)
-    # The Notification event has no machine-readable kind, so we classify by
-    # the PRIOR state instead of fragile English-text matching:
-    #   - mid-work  -> a permission/confirmation prompt is blocking you   (yellow)
-    #   - finished  -> the ~60s "still waiting" idle nudge -> leave the
-    #                  finished->idle decay clock running untouched.
-    case "$PRIOR" in
-      finished)   exit 0 ;;
-      permission) exit 0 ;;
-      *)          STATE="permission"; REASON="needs your input" ;;
+    # Only a real permission/approval prompt should turn the session yellow.
+    # Other notifications -- the ~60s "waiting for your input" idle nudge (which
+    # can fire mid-work, e.g. while a subagent runs), auth/info notices -- must
+    # NOT flip a working session to "needs you". Prefer the machine-readable
+    # notification_type; fall back to the message text, then prior state.
+    case "$NTYPE" in
+      permission*) STATE="permission"; REASON="needs your input" ;;
+      "")
+        case "$MESSAGE" in
+          *[Pp]ermission*) STATE="permission"; REASON="needs your input" ;;
+          *waiting*)       exit 0 ;;                  # idle nudge
+          "")                                          # no type or message: prior-state heuristic
+            case "$PRIOR" in
+              finished|permission) exit 0 ;;
+              *)                   STATE="permission"; REASON="needs your input" ;;
+            esac ;;
+          *) exit 0 ;;                                 # any other notification
+        esac ;;
+      *) exit 0 ;;                                     # idle_prompt / auth_success / elicitation / etc.
     esac ;;
   SessionStart)
     case "$SOURCE" in

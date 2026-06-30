@@ -40,14 +40,14 @@ func renderStatusSamples(toDir dir: String) {
         (.systemRed,    EyePose(), .stressed),
     ], "moods")
 
-    // Eye-pose sheet (animation tuning).
+    // Eye-pose sheet (animation tuning): the new personality poses.
     strip([
-        (.systemGreen, EyePose(look: CGVector(dx: -0.9, dy: 0)), .chill),
-        (.systemGreen, EyePose(), .chill),
-        (.systemGreen, EyePose(look: CGVector(dx: 0.9, dy: 0)), .chill),
-        (.systemGreen, EyePose(look: CGVector(dx: 0, dy: 0.7)), .chill),
-        (.systemGreen, EyePose(blink: 0.55), .chill),
-        (.systemGreen, EyePose(blink: 1.0), .chill),
+        (.systemGreen,  EyePose(look: CGVector(dx: 0.9, dy: 0)), .chill),                  // cursor-follow glance
+        (.systemGreen,  EyePose(look: CGVector(dx: 0, dy: -0.25), blink: 0.6), .chill),    // sleepy droop (nap)
+        (.systemGreen,  EyePose(look: CGVector(dx: 0, dy: 0.5), blink: 0.5), .chill),      // happy squint
+        (.systemRed,    EyePose(converge: 0.9), .pressure),                                // crossed eyes (egg)
+        (.systemYellow, EyePose(look: CGVector(dx: 0.85, dy: -0.1), blink: 0.35), .alert), // suspicious side-eye
+        (.systemGreen,  EyePose(blink: 1.0), .chill),                                      // blink closed
     ], "poses")
 
     // Multi-shell dot strip (3 working -> body red, stressed).

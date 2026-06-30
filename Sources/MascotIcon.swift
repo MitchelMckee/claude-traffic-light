@@ -10,6 +10,7 @@ let kMaxStatusDots = 6
 struct EyePose {
     var look: CGVector = .zero   // pupil offset; each axis in [-1, 1], +dy = up
     var blink: CGFloat = 0       // 0 = open, 1 = closed
+    var converge: CGFloat = 0    // pupils pull toward the nose (crossed eyes); 0 = none
     static let neutral = EyePose()
 }
 
@@ -56,12 +57,15 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
     body.stroke()
 
     // Two black-and-white eyes; mood sets how tall/squished (always a vertical oval).
+    // `converge` pulls each pupil toward the nose (crossed eyes).
     let eyeW = rect.width * 0.36
     let gap  = rect.width * 0.10
     let cy   = rect.minY + rect.height * 0.50
     let hf   = eyeHeightFactor(mood)
-    drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: pose)
-    drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: pose)
+    var leftPose = pose;  leftPose.look.dx  += pose.converge   // left pupil toward nose (right)
+    var rightPose = pose; rightPose.look.dx -= pose.converge   // right pupil toward nose (left)
+    drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: leftPose)
+    drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: rightPose)
 
     img.unlockFocus()
     img.isTemplate = false
@@ -95,8 +99,9 @@ private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose:
 /// The status-bar image: the mascot (body tinted by `body`, expressing `mood`)
 /// followed by one small dot per shell, sorted most-urgent first.
 func statusImage(body: EffectiveState, states: [EffectiveState],
-                 height: CGFloat = kMenubarHeight, pose: EyePose = .neutral, mood: Mood = .chill) -> NSImage {
-    let mascot = mascotImage(color: body.color, height: height, pose: pose, mood: mood)
+                 height: CGFloat = kMenubarHeight, pose: EyePose = .neutral, mood: Mood = .chill,
+                 bodyColor: NSColor? = nil) -> NSImage {
+    let mascot = mascotImage(color: bodyColor ?? body.color, height: height, pose: pose, mood: mood)
     guard states.count >= 2 else { return mascot }
 
     let dotD     = (height * 0.38).rounded()
@@ -154,14 +159,28 @@ private func tinted(_ mask: NSImage, color: NSColor, height: CGFloat) -> NSImage
     return img
 }
 
-private func loadMascotMask() -> NSImage? {
+private struct MaskCache { let path: String; let mtime: Date?; let image: NSImage? }
+private var maskCache: MaskCache?
+
+private func maskPath() -> String? {
     let fm = FileManager.default
     let candidates = [
         ("~/.claude/menubar-state/mascot-mask.png" as NSString).expandingTildeInPath,
         Bundle.main.bundlePath + "/Contents/Resources/mascot-mask.png",
     ]
-    for path in candidates where fm.fileExists(atPath: path) {
-        if let img = NSImage(contentsOfFile: path) { return img }
-    }
-    return nil
+    return candidates.first { fm.fileExists(atPath: $0) }
+}
+
+/// True when a custom `mascot-mask.png` override is present (the eyes aren't drawn).
+func hasMascotMask() -> Bool { maskPath() != nil }
+
+/// The mask override, decoded once and re-read only when its modification time
+/// changes — so the 12 fps redraw doesn't re-decode the same PNG every frame.
+private func loadMascotMask() -> NSImage? {
+    guard let path = maskPath() else { maskCache = nil; return nil }
+    let mtime = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+    if let c = maskCache, c.path == path, c.mtime == mtime { return c.image }
+    let img = NSImage(contentsOfFile: path)
+    maskCache = MaskCache(path: path, mtime: mtime, image: img)
+    return img
 }
