@@ -17,11 +17,12 @@ struct EyePose {
 /// flat, >1 stretched tall). Everything else is off-limits — the face is just
 /// two circles, each with a circle inside.
 private func eyeHeightFactor(_ mood: Mood) -> CGFloat {
+    // Always > 1: the eyes stay a vertical oval, just more or less tall.
     switch mood {
-    case .alert:    return 1.70   // tall — wide awake
-    case .chill:    return 1.00   // round — relaxed
-    case .pressure: return 0.58   // squished — strained
-    case .stressed: return 0.30   // flat — drained
+    case .alert:    return 1.70   // tallest oval — wide awake
+    case .chill:    return 1.45   // tall oval — relaxed
+    case .pressure: return 1.28   // squished oval — strained
+    case .stressed: return 1.15   // most squished, still an oval — drained
     }
 }
 
@@ -45,7 +46,7 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
     let inset = height * 0.035
     let rect = NSRect(x: inset, y: inset, width: height - inset * 2, height: height - inset * 2)
 
-    // Body: a soft rounded blob, filling most of the icon.
+    // Body: a soft rounded blob in the state color.
     let radius = rect.width * 0.42
     let body = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
     color.setFill()
@@ -54,10 +55,9 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
     body.lineWidth = max(0.75, height * 0.04)
     body.stroke()
 
-    // Two big eyes that dominate the face. Mood squishes their height; that's
-    // the whole repertoire.
-    let eyeW = rect.width * 0.41
-    let gap  = rect.width * 0.08
+    // Two black-and-white eyes; mood sets how tall/squished (always a vertical oval).
+    let eyeW = rect.width * 0.36
+    let gap  = rect.width * 0.10
     let cy   = rect.minY + rect.height * 0.50
     let hf   = eyeHeightFactor(mood)
     drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: pose)
@@ -72,16 +72,16 @@ private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose:
     let open = max(0, 1 - pose.blink)                  // blink is just a hard squish
     let eyeH = max(eyeW * 0.05, eyeW * hf * open)
 
-    // Eye (a circle, squished to an ellipse).
+    // Eye (white, a vertical oval squished by mood/blink).
     let eyeRect = NSRect(x: cx - eyeW / 2, y: cy - eyeH / 2, width: eyeW, height: eyeH)
-    let eye = NSBezierPath(ovalIn: eyeRect)
+    let path = NSBezierPath(ovalIn: eyeRect)
     NSColor.white.setFill()
-    eye.fill()
-    NSColor.black.withAlphaComponent(0.30).setStroke()   // thin edge so white reads on any body color
-    eye.lineWidth = max(0.5, eyeW * 0.05)
-    eye.stroke()
+    path.fill()
+    NSColor.black.withAlphaComponent(0.30).setStroke()   // thin edge so white reads on the body color
+    path.lineWidth = max(0.5, eyeW * 0.05)
+    path.stroke()
 
-    // Pupil (a circle inside, squished with the eye, moved by the glance).
+    // Pupil (dark, squished with the eye, moved by the glance).
     let pupilW = eyeW * 0.55
     let pupilH = pupilW * (eyeH / eyeW)
     let maxOffX = max(0, (eyeW - pupilW) / 2 * 0.82)
