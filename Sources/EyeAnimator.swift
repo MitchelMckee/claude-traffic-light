@@ -44,9 +44,14 @@ final class EyeAnimator {
     private var pending: [WP]?          // a queued reaction
     private var followBlink = 0         // blink countdown while cursor-following
     private var recentering = false     // gliding gaze back to centre after follow
+    private var reactionKind: EyeReaction?   // reaction currently forced (drives pupil size)
+    private var queuedKind: EyeReaction?     // reaction queued via react()
+
+    /// Sleepiness bias from time-of-day + fatigue: 0 = fresh, 1 = worn out (slows the tempo).
+    var droop: CGFloat = 0
 
     /// Queue a one-shot reaction; it interrupts whatever's playing.
-    func react(_ r: EyeReaction) { pending = EyeAnimator.reactionSteps(r) }
+    func react(_ r: EyeReaction) { pending = EyeAnimator.reactionSteps(r); queuedKind = r }
 
     /// True while a reaction is queued — callers use this to avoid clobbering it.
     var hasPendingReaction: Bool { pending != nil }
@@ -59,11 +64,16 @@ final class EyeAnimator {
         if let p = pending {
             active = p; pending = nil; step = 0; frame = 0
             fromLook = pose.look; fromBlink = pose.blink; fromConverge = pose.converge
-            forced = true
+            forced = true; reactionKind = queuedKind
         }
+
+        // Pupil size eases toward the mood baseline, dilated during happy/alert reactions.
+        let pupilTarget = forced ? EyeAnimator.reactionPupil(reactionKind) : EyeAnimator.moodPupil(mood)
+        pose.pupil = approach(pose.pupil, pupilTarget, 0.18)
+
         if forced {
             advance()
-            if step >= active.count { forced = false; step = active.count }
+            if step >= active.count { forced = false; reactionKind = nil; step = active.count }
             return moved(before)
         }
 
@@ -139,7 +149,7 @@ final class EyeAnimator {
         if pool.count > 1 { while idx == lastIndex { idx = pool.randomElement()! } }
         lastIndex = idx
 
-        let tempo = EyeAnimator.tempo(mood)
+        let tempo = EyeAnimator.tempo(mood) * (1 + droop * 0.5)   // sleepier -> slower
         active = EyeAnimator.clips[idx].steps.map {
             WP(look: $0.look, blink: $0.blink, converge: $0.converge,
                move: max(1, Int((CGFloat($0.move) * tempo).rounded())),
@@ -149,13 +159,34 @@ final class EyeAnimator {
 
     private func moved(_ before: EyePose) -> Bool {
         abs(pose.look.dx - before.look.dx) + abs(pose.look.dy - before.look.dy)
-            + abs(pose.blink - before.blink) + abs(pose.converge - before.converge) > 0.003
+            + abs(pose.blink - before.blink) + abs(pose.converge - before.converge)
+            + abs(pose.pupil - before.pupil) > 0.003
     }
 
     private func approach(_ a: CGFloat, _ b: CGFloat, _ rate: CGFloat) -> CGFloat { a + (b - a) * rate }
     private func smooth(_ t: CGFloat) -> CGFloat { let c = min(1, max(0, t)); return c * c * (3 - 2 * c) }
     private func lerp(_ a: CGVector, _ b: CGVector, _ t: CGFloat) -> CGVector {
         CGVector(dx: a.dx + (b.dx - a.dx) * t, dy: a.dy + (b.dy - a.dy) * t)
+    }
+
+    /// Resting pupil size per mood: relaxed round, wide when alert, pinpricks when stressed.
+    private static func moodPupil(_ m: Mood) -> CGFloat {
+        switch m {
+        case .chill:    return 1.00
+        case .alert:    return 1.12
+        case .pressure: return 0.90
+        case .stressed: return 0.72
+        }
+    }
+    /// Pupils dilate for a happy/celebratory reaction, widen for an alert.
+    private static func reactionPupil(_ r: EyeReaction?) -> CGFloat {
+        switch r {
+        case .happy:     return 1.35
+        case .celebrate: return 1.42
+        case .alert:     return 1.18
+        case .wake:      return 1.10
+        case .none:      return 1.00
+        }
     }
 
     private static func tempo(_ m: Mood) -> CGFloat {

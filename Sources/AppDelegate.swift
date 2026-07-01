@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var celebrated = false               // the "all clear" reaction fired once
     private var cursorEngaged = false            // hysteresis for cursor-follow proximity
     private var alertsArmed = false              // suppress notification re-dings on launch
+    private var fatigue: CGFloat = 0             // builds under load, recovers when calm
+    private var droopBias: CGFloat = 0           // time-of-day + fatigue sleepiness (0-1)
 
     private var displayColor: NSColor = EffectiveState.idle.color
     private var fadeFrom: NSColor = EffectiveState.idle.color
@@ -69,8 +71,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
             let target = self.cursorTarget()
             self.eyes.lookTarget = target
             if target != nil { self.lastActivityAt = Date().timeIntervalSince1970 }  // engaging keeps it awake
+            let effNap = self.napAfter * (1 - Double(self.droopBias) * 0.5)          // sleepier -> naps sooner
             let nap = target == nil && self.displayMood == .chill
-                && Date().timeIntervalSince1970 - self.lastActivityAt > self.napAfter
+                && Date().timeIntervalSince1970 - self.lastActivityAt > effNap
             if nap != self.eyes.drowsy {
                 self.eyes.drowsy = nap
                 // a queued event reaction already wakes it; don't overwrite that with .wake
@@ -185,6 +188,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         prevColorKey = displayBody.colorKey
         reactToTransitions(sessions: sessions, now: now)
+
+        // Time-of-day + fatigue -> sleepiness (droopier eyes, slower, naps sooner).
+        let hour = Calendar.current.component(.hour, from: Date())
+        let night: CGFloat = (hour >= 22 || hour < 6) ? 0.5 : (hour >= 20 || hour < 7) ? 0.25 : 0
+        switch displayMood {
+        case .stressed: fatigue = min(1, fatigue + 0.0020)
+        case .pressure: fatigue = min(1, fatigue + 0.0010)
+        default:        fatigue = max(0, fatigue - 0.0030)
+        }
+        droopBias = min(1, night + fatigue * 0.55)
+        eyes.droop = droopBias
+
         let overflow = showDots ? max(0, displayStates.count - kMaxStatusDots) : 0
         statusItem.button?.title = overflow > 0 ? " +\(overflow)" : ""
 
@@ -265,13 +280,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     /// Redraw the menu-bar icon for the current state + eye pose; skips the work
     /// when nothing changed, so the 12 fps animation tick stays cheap.
     private func renderStatusBar(force: Bool) {
-        let p = eyes.pose
+        var p = eyes.pose
+        p.blink = max(p.blink, droopBias * 0.45)         // time-of-day + fatigue droop
         let states = showDots ? displayStates : []      // dots off -> just the eyes
         // A mask override ignores pose/mood, so keep them out of the dedup key
         // then — the eye animation must not force needless re-tints.
         let masked = hasMascotMask()
         let poseKey = masked ? "mask"
-            : "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))/\(Int(p.converge * 18))"
+            : "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))/\(Int(p.converge * 18))/\(Int(p.pupil * 18))"
         let moodKey = masked ? "" : "\(displayMood)"
         let sig = displayBody.colorKey + "#\(moodKey)#dots:\(showDots)#fade:\(Int(fadeT * 50))#"
                 + states.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
@@ -332,7 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func notify(session s: SessionState, permission: Bool) {
-        if playSound { NSSound(named: NSSound.Name("Glass"))?.play() }
+        // Distinct sounds: a deeper "hey" for a blocking prompt, a soft chime when done.
+        if playSound { NSSound(named: NSSound.Name(permission ? "Submarine" : "Glass"))?.play() }
         let title = permission ? "Claude needs your input" : "Claude finished — your turn"
         let body = s.label.isEmpty ? "A session is waiting." : s.label
         if notifReady {

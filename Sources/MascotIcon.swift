@@ -11,6 +11,7 @@ struct EyePose {
     var look: CGVector = .zero   // pupil offset; each axis in [-1, 1], +dy = up
     var blink: CGFloat = 0       // 0 = open, 1 = closed
     var converge: CGFloat = 0    // pupils pull toward the nose (crossed eyes); 0 = none
+    var pupil: CGFloat = 1       // pupil size multiplier (>1 dilated/excited, <1 pinprick/stressed)
     static let neutral = EyePose()
 }
 
@@ -44,7 +45,7 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
     img.lockFocus()
     NSGraphicsContext.current?.imageInterpolation = .high
 
-    let inset = height * 0.035
+    let inset = height * 0.015                   // fill nearly the whole menu-bar height
     let rect = NSRect(x: inset, y: inset, width: height - inset * 2, height: height - inset * 2)
 
     // Body: a soft rounded blob in the state color.
@@ -53,12 +54,12 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
     color.setFill()
     body.fill()
     NSColor.black.withAlphaComponent(0.28).setStroke()
-    body.lineWidth = max(0.75, height * 0.04)
+    body.lineWidth = max(0.6, height * 0.028)    // thinner edge, less "frame"
     body.stroke()
 
     // Two black-and-white eyes; mood sets how tall/squished (always a vertical oval).
     // `converge` pulls each pupil toward the nose (crossed eyes).
-    let eyeW = rect.width * 0.36
+    let eyeW = rect.width * 0.40                 // bigger eyes
     let gap  = rect.width * 0.10
     let cy   = rect.minY + rect.height * 0.50
     let hf   = eyeHeightFactor(mood)
@@ -85,8 +86,8 @@ private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose:
     path.lineWidth = max(0.5, eyeW * 0.05)
     path.stroke()
 
-    // Pupil (dark, squished with the eye, moved by the glance).
-    let pupilW = eyeW * 0.55
+    // Pupil (dark, squished with the eye, moved by the glance, sized by emotion).
+    let pupilW = eyeW * 0.55 * min(1.5, max(0.5, pose.pupil))
     let pupilH = pupilW * (eyeH / eyeW)
     let maxOffX = max(0, (eyeW - pupilW) / 2 * 0.82)
     let maxOffY = max(0, (eyeH - pupilH) / 2 * 0.82)
