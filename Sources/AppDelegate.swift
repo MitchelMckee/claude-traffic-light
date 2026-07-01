@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     // MARK: lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        for key in ["alertOnPermission", "alertOnFinished", "showDots"] where defaults.object(forKey: key) == nil {
+        for key in ["alertOnPermission", "alertOnFinished", "showDots", "playSound"] where defaults.object(forKey: key) == nil {
             defaults.set(true, forKey: key)
         }
 
@@ -165,6 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var alertOnPermission: Bool { defaults.bool(forKey: "alertOnPermission") }
     private var alertOnFinished: Bool { defaults.bool(forKey: "alertOnFinished") }
     private var showDots: Bool { defaults.bool(forKey: "showDots") }
+    private var playSound: Bool { defaults.bool(forKey: "playSound") }
 
     // MARK: state -> icon + alerts (runs on every tick / fs change)
 
@@ -331,7 +332,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     }
 
     private func notify(session s: SessionState, permission: Bool) {
-        NSSound(named: NSSound.Name("Glass"))?.play()
+        if playSound { NSSound(named: NSSound.Name("Glass"))?.play() }
         let title = permission ? "Claude needs your input" : "Claude finished — your turn"
         let body = s.label.isEmpty ? "A session is waiting." : s.label
         if notifReady {
@@ -451,6 +452,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         finItem.state = alertOnFinished ? .on : .off
         menu.addItem(finItem)
 
+        let soundItem = NSMenuItem(title: "Play a sound", action: #selector(toggleSound), keyEquivalent: "")
+        soundItem.target = self
+        soundItem.state = playSound ? .on : .off
+        menu.addItem(soundItem)
+
         let dotsItem = NSMenuItem(title: "Show per-shell dots", action: #selector(toggleDots), keyEquivalent: "")
         dotsItem.target = self
         dotsItem.state = showDots ? .on : .off
@@ -515,6 +521,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     @objc private func toggleDots() {
         defaults.set(!showDots, forKey: "showDots")
+        refresh()
+    }
+
+    @objc private func toggleSound() {
+        defaults.set(!playSound, forKey: "playSound")
         refresh()
     }
 
