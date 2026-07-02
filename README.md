@@ -74,7 +74,7 @@ you, narrowed under load, and squished flat when everything's running at once:
 
 - 🎯 **One glanceable icon** — aggregate state across all sessions, most-urgent wins.
 - 👀 **Per-shell dot strip** — see each session's state without opening anything.
-- ⚡ **Instant alerts** — sound + banner (showing the mascot's current face) the moment a session is blocked or finishes; each is a separate toggle.
+- ⚡ **Instant alerts** — sound + banner (showing the mascot's current face) the moment a session is blocked or finishes; each is a separate toggle, with a volume slider to keep the sounds as subtle as you like.
 - 🖱️ **Click to focus** — jump to a session's terminal (precise on iTerm2 / Terminal / tmux; best-effort on Ghostty).
 - 🏷️ **Labeled by project** — sessions are named by their working directory, de-duplicated when they collide.
 - 🧩 **Zero runtime deps** — one native AppKit binary; the hooks are plain bash + `jq`.
@@ -106,7 +106,7 @@ cd claude-traffic-light
 ./build.sh                              # compile ClaudeTrafficLight.app
 ./install.sh                            # wire hooks into ~/.claude/settings.json (backs up first)
 open build/ClaudeTrafficLight.app
-./autostart.sh                          # optional: also launch at login
+./autostart.sh                          # optional: also launch at login (or toggle "Open at login" in the menu)
 ```
 
 > **First-launch Gatekeeper note:** the app isn't notarized (no paid Apple Developer cert), so

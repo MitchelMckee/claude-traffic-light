@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         for key in ["alertOnPermission", "alertOnFinished", "showDots", "playSound"] where defaults.object(forKey: key) == nil {
             defaults.set(true, forKey: key)
         }
+        if defaults.object(forKey: "soundVolume") == nil { defaults.set(1.0, forKey: "soundVolume") }
 
         store.ensureDir()
         setUpNotifications()
@@ -175,6 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var alertOnFinished: Bool { defaults.bool(forKey: "alertOnFinished") }
     private var showDots: Bool { defaults.bool(forKey: "showDots") }
     private var playSound: Bool { defaults.bool(forKey: "playSound") }
+    private var soundVolume: Float { defaults.float(forKey: "soundVolume") }
     private var boringMode: Bool { defaults.bool(forKey: "boringMode") }
 
     // MARK: state -> icon + alerts (runs on every tick / fs change)
@@ -356,7 +358,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     private func notify(session s: SessionState, permission: Bool) {
         // Distinct sounds: a deeper "hey" for a blocking prompt, a soft chime when done.
-        if playSound { NSSound(named: NSSound.Name(permission ? "Submarine" : "Glass"))?.play() }
+        if playSound, let snd = NSSound(named: NSSound.Name(permission ? "Submarine" : "Glass")) {
+            snd.volume = soundVolume
+            snd.play()
+        }
         let title = permission ? "Claude needs your input" : "Claude finished — your turn"
         let body = s.label.isEmpty ? "A session is waiting." : s.label
         if notifReady {
@@ -481,6 +486,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         soundItem.state = playSound ? .on : .off
         menu.addItem(soundItem)
 
+        let volumeItem = NSMenuItem()
+        volumeItem.view = makeVolumeSliderView()
+        menu.addItem(volumeItem)
+
         let dotsItem = NSMenuItem(title: "Show per-shell dots", action: #selector(toggleDots), keyEquivalent: "")
         dotsItem.target = self
         dotsItem.state = showDots ? .on : .off
@@ -492,6 +501,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         boringItem.toolTip = "No eyes, no animation — just a colored light"
         menu.addItem(boringItem)
 
+        let loginItem = NSMenuItem(title: "Open at login", action: #selector(toggleOpenAtLogin), keyEquivalent: "")
+        loginItem.target = self
+        loginItem.state = openAtLogin ? .on : .off
+        loginItem.toolTip = "Start automatically when you log in"
+        menu.addItem(loginItem)
+
         menu.addItem(.separator())
         if let u = update {
             let item = NSMenuItem(title: "Update available — v\(u.version)",
@@ -502,6 +517,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
+    }
+
+    /// Speaker-to-speaker volume slider, shown as a menu row under "Play a sound".
+    /// Custom-view items don't close the menu, so you can drag to taste; releasing
+    /// the knob plays the chime at the new level as a preview.
+    private func makeVolumeSliderView() -> NSView {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 250, height: 22))
+
+        let quiet = NSImageView(frame: NSRect(x: 22, y: 4, width: 14, height: 14))
+        quiet.image = NSImage(systemSymbolName: "speaker.fill", accessibilityDescription: "Quiet")
+        quiet.contentTintColor = .secondaryLabelColor
+        container.addSubview(quiet)
+
+        let slider = NSSlider(value: Double(soundVolume), minValue: 0, maxValue: 1,
+                              target: self, action: #selector(volumeChanged(_:)))
+        slider.frame = NSRect(x: 42, y: 1, width: 168, height: 20)
+        slider.controlSize = .small
+        slider.isEnabled = playSound
+        slider.toolTip = "Notification sound volume"
+        container.addSubview(slider)
+
+        let loud = NSImageView(frame: NSRect(x: 216, y: 4, width: 16, height: 14))
+        loud.image = NSImage(systemSymbolName: "speaker.wave.3.fill", accessibilityDescription: "Loud")
+        loud.contentTintColor = .secondaryLabelColor
+        container.addSubview(loud)
+
+        return container
     }
 
     /// Project folder name per session, disambiguated with the parent folder
@@ -559,10 +601,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         refresh()
     }
 
+    @objc private func volumeChanged(_ sender: NSSlider) {
+        defaults.set(sender.floatValue, forKey: "soundVolume")
+        // Preview only on release — continuous playback while dragging is grating.
+        if NSApp.currentEvent?.type == .leftMouseUp, playSound,
+           let snd = NSSound(named: "Glass") {
+            snd.volume = sender.floatValue
+            snd.play()
+        }
+    }
+
     @objc private func toggleBoring() {
         defaults.set(!boringMode, forKey: "boringMode")
         if !boringMode { eyes.react(.wake) }   // eyes pop back awake when leaving boring mode
         refresh()
+    }
+
+    // MARK: open at login
+
+    /// The same LaunchAgent that ./autostart.sh installs — managing one file
+    /// keeps the menu toggle and the script in agreement.
+    private var loginAgentPlist: String {
+        ("~/Library/LaunchAgents/com.mitchelmckee.claude-traffic-light.plist" as NSString).expandingTildeInPath
+    }
+
+    private var openAtLogin: Bool { FileManager.default.fileExists(atPath: loginAgentPlist) }
+
+    @objc private func toggleOpenAtLogin() {
+        let fm = FileManager.default
+        if openAtLogin {
+            // Just remove the file: launchd only reads ~/Library/LaunchAgents at
+            // login, and booting the label out now could kill this very process
+            // if launchd started it.
+            try? fm.removeItem(atPath: loginAgentPlist)
+        } else {
+            guard let bin = Bundle.main.executablePath else { return }
+            let agent: [String: Any] = [
+                "Label": "com.mitchelmckee.claude-traffic-light",
+                "ProgramArguments": [bin],
+                "RunAtLoad": true,
+                "KeepAlive": false,               // Quit from the menu sticks until next login
+                "ProcessType": "Interactive",
+            ]
+            let dir = (loginAgentPlist as NSString).deletingLastPathComponent
+            try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            if let data = try? PropertyListSerialization.data(fromPropertyList: agent, format: .xml, options: 0) {
+                try? data.write(to: URL(fileURLWithPath: loginAgentPlist))
+            }
+        }
     }
 
 }
