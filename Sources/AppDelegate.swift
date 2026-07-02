@@ -55,7 +55,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         setUpNotifications()
         menu.delegate = self
         statusItem.menu = menu
-        statusItem.button?.image = mascotImage(color: EffectiveState.idle.color, height: kMenubarHeight)
+        statusItem.button?.image = mascotImage(color: EffectiveState.idle.color, height: kMenubarHeight,
+                                               eyes: !boringMode)
         statusItem.button?.imagePosition = .imageLeft   // image (mascot+dots), then any "+N" title
         statusItem.button?.toolTip = "Claude Code traffic light"
 
@@ -68,6 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // Animate the mascot's eyes (~12 fps; only redraws while something moves).
         let anim = Timer(timeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
             guard let self else { return }
+            if self.boringMode {
+                // No eyes to animate; just finish any in-flight body-color fade.
+                if self.advanceColorFade() { self.renderStatusBar(force: false) }
+                return
+            }
             let target = self.cursorTarget()
             self.eyes.lookTarget = target
             if target != nil { self.lastActivityAt = Date().timeIntervalSince1970 }  // engaging keeps it awake
@@ -169,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var alertOnFinished: Bool { defaults.bool(forKey: "alertOnFinished") }
     private var showDots: Bool { defaults.bool(forKey: "showDots") }
     private var playSound: Bool { defaults.bool(forKey: "playSound") }
+    private var boringMode: Bool { defaults.bool(forKey: "boringMode") }
 
     // MARK: state -> icon + alerts (runs on every tick / fs change)
 
@@ -283,19 +290,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         var p = eyes.pose
         p.blink = max(p.blink, droopBias * 0.45)         // time-of-day + fatigue droop
         let states = showDots ? displayStates : []      // dots off -> just the eyes
-        // A mask override ignores pose/mood, so keep them out of the dedup key
-        // then — the eye animation must not force needless re-tints.
-        let masked = hasMascotMask()
-        let poseKey = masked ? "mask"
+        // A mask override or boring mode ignores pose/mood, so keep them out of
+        // the dedup key then — the eye animation must not force needless re-tints.
+        let faceless = hasMascotMask() || boringMode
+        let poseKey = faceless ? (boringMode ? "boring" : "mask")
             : "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))/\(Int(p.converge * 18))/\(Int(p.pupil * 18))"
-        let moodKey = masked ? "" : "\(displayMood)"
+        let moodKey = faceless ? "" : "\(displayMood)"
         let sig = displayBody.colorKey + "#\(moodKey)#dots:\(showDots)#fade:\(Int(fadeT * 50))#"
                 + states.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
         if !force && sig == lastStatusSig { return }
         lastStatusSig = sig
         statusItem.button?.image = statusImage(body: displayBody, states: states,
                                                height: kMenubarHeight, pose: p, mood: displayMood,
-                                               bodyColor: displayColor)
+                                               bodyColor: displayColor, eyes: !boringMode)
     }
 
     private func handleAlerts(sessions: [SessionState], now: Double) {
@@ -479,6 +486,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         dotsItem.state = showDots ? .on : .off
         menu.addItem(dotsItem)
 
+        let boringItem = NSMenuItem(title: "Boring mode", action: #selector(toggleBoring), keyEquivalent: "")
+        boringItem.target = self
+        boringItem.state = boringMode ? .on : .off
+        boringItem.toolTip = "No eyes, no animation — just a colored light"
+        menu.addItem(boringItem)
+
         menu.addItem(.separator())
         if let u = update {
             let item = NSMenuItem(title: "Update available — v\(u.version)",
@@ -543,6 +556,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     @objc private func toggleSound() {
         defaults.set(!playSound, forKey: "playSound")
+        refresh()
+    }
+
+    @objc private func toggleBoring() {
+        defaults.set(!boringMode, forKey: "boringMode")
+        if !boringMode { eyes.react(.wake) }   // eyes pop back awake when leaving boring mode
         refresh()
     }
 

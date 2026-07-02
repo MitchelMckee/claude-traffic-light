@@ -32,14 +32,14 @@ private func eyeHeightFactor(_ mood: Mood) -> CGFloat {
 /// circle). Mood only changes the eyes' height. A `mascot-mask.png` override,
 /// if present, is used instead.
 func mascotImage(color: NSColor, height: CGFloat = 22,
-                 pose: EyePose = .neutral, mood: Mood = .chill) -> NSImage {
+                 pose: EyePose = .neutral, mood: Mood = .chill, eyes: Bool = true) -> NSImage {
     if let mask = loadMascotMask() {
         return tinted(mask, color: color, height: height)
     }
-    return drawMascot(color: color, height: height, pose: pose, mood: mood)
+    return drawMascot(color: color, height: height, pose: pose, mood: mood, eyes: eyes)
 }
 
-private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mood) -> NSImage {
+private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mood, eyes: Bool) -> NSImage {
     let size = NSSize(width: height, height: height)
     let img = NSImage(size: size)
     img.lockFocus()
@@ -59,14 +59,17 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
 
     // Two black-and-white eyes; mood sets how tall/squished (always a vertical oval).
     // `converge` pulls each pupil toward the nose (crossed eyes).
-    let eyeW = rect.width * 0.40                 // bigger eyes
-    let gap  = rect.width * 0.10
-    let cy   = rect.minY + rect.height * 0.50
-    let hf   = eyeHeightFactor(mood)
-    var leftPose = pose;  leftPose.look.dx  += pose.converge   // left pupil toward nose (right)
-    var rightPose = pose; rightPose.look.dx -= pose.converge   // right pupil toward nose (left)
-    drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: leftPose)
-    drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: rightPose)
+    // Boring mode draws no eyes at all — just the colored blob.
+    if eyes {
+        let eyeW = rect.width * 0.40                 // bigger eyes
+        let gap  = rect.width * 0.10
+        let cy   = rect.minY + rect.height * 0.50
+        let hf   = eyeHeightFactor(mood)
+        var leftPose = pose;  leftPose.look.dx  += pose.converge   // left pupil toward nose (right)
+        var rightPose = pose; rightPose.look.dx -= pose.converge   // right pupil toward nose (left)
+        drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: leftPose)
+        drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: rightPose)
+    }
 
     img.unlockFocus()
     img.isTemplate = false
@@ -101,8 +104,8 @@ private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose:
 /// followed by one small dot per shell, sorted most-urgent first.
 func statusImage(body: EffectiveState, states: [EffectiveState],
                  height: CGFloat = kMenubarHeight, pose: EyePose = .neutral, mood: Mood = .chill,
-                 bodyColor: NSColor? = nil) -> NSImage {
-    let mascot = mascotImage(color: bodyColor ?? body.color, height: height, pose: pose, mood: mood)
+                 bodyColor: NSColor? = nil, eyes: Bool = true) -> NSImage {
+    let mascot = mascotImage(color: bodyColor ?? body.color, height: height, pose: pose, mood: mood, eyes: eyes)
     guard states.count >= 2 else { return mascot }
 
     let dotD     = (height * 0.38).rounded()
