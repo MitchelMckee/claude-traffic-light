@@ -109,9 +109,12 @@ open build/ClaudeTrafficLight.app
 ./autostart.sh                          # optional: also launch at login (or toggle "Open at login" in the menu)
 ```
 
-> **First-launch Gatekeeper note:** the app isn't notarized (no paid Apple Developer cert), so
-> the first time you open a downloaded/brew-installed copy, **right-click it → Open** once. Or
-> skip the prompt with `brew install --cask --no-quarantine mitchelmckee/tap/claude-traffic-light`.
+> **First-launch Gatekeeper note:** the app isn't notarized (no paid Apple Developer cert).
+> The Homebrew cask clears the quarantine flag for you, so a brew install just opens. For the
+> DMG, macOS 15+ will claim the app is **"damaged"** and offer to move it to the Trash — don't;
+> the right-click → Open trick no longer exists there. Instead run
+> `xattr -dr com.apple.quarantine /Applications/ClaudeTrafficLight.app`, or approve it under
+> **System Settings → Privacy & Security → Open Anyway** after the first blocked attempt.
 
 After installing, restart any running Claude Code sessions so they pick up the hooks. The first
 time you click a session to focus its terminal, macOS asks for Automation/Accessibility — grant
