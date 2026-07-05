@@ -227,14 +227,20 @@
   let mood = 'chill';                        // chill (ready) · pressure (working) · alert (needs you)
   let cursor = null, lastMove = Date.now();
 
+  const whites = eyes.map(() => ({x:0, y:0}));   // smoothed white-of-eye drift, per eye
   function render(){
     eyes.forEach((eye, i) => {
       const maxX = eye.offsetWidth * .20, maxY = eye.offsetHeight * .20;
       const px = (pose.lx + (i ? -1 : 1) * pose.conv * .9) * maxX;  // conv leans pupils toward the nose
       const py = -pose.ly * maxY;
+      // pupil moves, white follows: the eyeball drifts the same way at ~28% of
+      // the travel, easing a beat behind the pupil
+      const w = whites[i];
+      w.x += (px * .28 - w.x) * .25;
+      w.y += (py * .28 - w.y) * .25;
       eye.querySelector('.pupil').style.transform =
         `translate(calc(-50% + ${px}px), calc(-50% + ${py}px)) scale(${pose.pupil})`;
-      eye.style.transform = `scaleY(${1 - pose.blink * .93})`;
+      eye.style.transform = `translate(${w.x}px, ${w.y}px) scaleY(${1 - pose.blink * .93})`;
     });
   }
   function cursorLook(){
