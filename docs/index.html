@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e0f12">
+<title>Claude Traffic Light</title>
+<meta name="description" content="A tiny macOS menu bar app that shows what every Claude Code session is doing — at a glance.">
+<style>
+  :root{
+    --green:#30D158; --red:#FF453A; --yellow:#FFD60A;
+    --ink:#1c1c1e; --pupil:#212121;
+    --bg:#0e0f12; --fg:#f5f5f7; --muted:#a1a1aa;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+
+  /* ---------- HERO ---------- */
+  .hero{height:100svh;background-color:var(--green);transition:background-color .55s ease;
+        display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+  .face{display:flex;gap:7vmin;align-items:center}
+  .eye{width:26vmin;height:calc(38vmin * var(--squish,1));background:#fff;border-radius:50%;
+       position:relative;border:0.5vmin solid rgba(0,0,0,.10);transform-origin:center;
+       box-shadow:0 1.2vmin 4vmin rgba(0,0,0,.12);
+       transition:height .45s cubic-bezier(.4,0,.2,1), transform .13s ease}
+  .eye.blink{transform:scaleY(.07)}
+
+  .status{position:absolute;left:50%;bottom:13vh;transform:translateX(-50%);
+          background:rgba(0,0,0,.16);color:rgba(0,0,0,.72);font-weight:700;font-size:16px;
+          padding:9px 19px;border-radius:999px;letter-spacing:.01em;user-select:none}
+
+  /* subtle traffic light to switch states */
+  .lights{position:absolute;right:24px;bottom:24px;display:flex;flex-direction:column;gap:9px;
+          padding:11px 9px;background:rgba(0,0,0,.34);border-radius:999px;opacity:.62;transition:opacity .25s}
+  .lights:hover{opacity:1}
+  .lights button{width:16px;height:16px;border-radius:50%;border:none;padding:0;cursor:pointer;
+                 position:relative;
+                 background:var(--c);opacity:.4;transition:opacity .2s, box-shadow .2s, transform .15s}
+  .lights button::before{content:"";position:absolute;inset:-6px;border-radius:50%}
+  .lights button:hover{transform:scale(1.18);opacity:.7}
+  /* touch screens: bigger, well-spaced tap targets (~40px, no overlap) */
+  @media (pointer:coarse){
+    .lights{gap:24px;padding:16px 13px;opacity:.8}
+    .lights button::before{inset:-12px}
+  }
+  .lights button.on{opacity:1;box-shadow:0 0 0 2px rgba(255,255,255,.32), 0 0 10px 2px var(--c)}
+  .pupil{position:absolute;top:50%;left:50%;width:54%;height:54%;background:var(--pupil);
+         border-radius:50%;transform:translate(-50%,-50%);
+         transition:transform .16s cubic-bezier(.33,1,.68,1)}
+
+  .scroll{position:absolute;bottom:4vh;left:50%;transform:translateX(-50%);
+          color:rgba(0,0,0,.5);font-size:15px;font-weight:600;letter-spacing:.04em;
+          text-align:center;user-select:none}
+  .scroll .chev{display:block;margin:6px auto 0;width:14px;height:14px;
+                border-right:2.5px solid rgba(0,0,0,.5);border-bottom:2.5px solid rgba(0,0,0,.5);
+                transform:rotate(45deg);animation:bob 1.6s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:rotate(45deg) translate(0,0)}50%{transform:rotate(45deg) translate(3px,3px)}}
+
+  /* ---------- ABOUT ---------- */
+  .about{max-width:720px;margin:0 auto;padding:14vh 28px 16vh;text-align:center}
+  .about h1{font-size:clamp(34px,6vw,56px);font-weight:800;letter-spacing:-.02em}
+  .tag{margin-top:18px;font-size:clamp(17px,2.4vw,21px);color:var(--muted);line-height:1.5}
+  .states{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:34px 0}
+  .chip{display:flex;align-items:center;gap:9px;padding:9px 16px;border-radius:999px;
+        background:#17181d;border:1px solid #25262d;font-size:15px;font-weight:600}
+  .chip .dot{width:11px;height:11px;border-radius:50%}
+  .dot.red{background:var(--red)} .dot.yellow{background:var(--yellow)} .dot.green{background:var(--green)}
+  .desc{font-size:16.5px;line-height:1.7;color:#cfcfd6;margin:0 auto 34px;max-width:600px}
+  .install{display:inline-flex;align-items:center;justify-content:center;flex-wrap:wrap;
+           gap:6px 12px;max-width:100%;background:#17181d;border:1px solid #25262d;
+           border-radius:12px;padding:14px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+           font-size:clamp(12px,3.4vw,14.5px);color:#e6e6ea;cursor:pointer;transition:border-color .2s}
+  .install:hover{border-color:#3a3b44}
+  .install .cmd{overflow-wrap:anywhere;text-align:left}
+  .install .copy{font-size:12px;color:var(--muted);font-family:inherit}
+  .actions{margin-top:30px}
+  .btn{display:inline-block;background:var(--green);color:#04210d;font-weight:700;font-size:16px;
+       text-decoration:none;padding:15px 28px;border-radius:999px;transition:transform .12s ease, box-shadow .2s}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(48,209,88,.35)}
+  .foot{margin-top:9vh;color:#5b5c66;font-size:13px}
+  .foot a{color:#8a8b95}
+
+  @media (prefers-reduced-motion:reduce){
+    .scroll .chev{animation:none}
+    .eye,.pupil,.hero,.status{transition:none}
+  }
+</style>
+</head>
+<body>
+
+  <section class="hero" id="top">
+    <div class="face" aria-hidden="true">
+      <div class="eye"><div class="pupil"></div></div>
+      <div class="eye"><div class="pupil"></div></div>
+    </div>
+    <div class="status" id="status">ready</div>
+    <a class="scroll" href="#about">scroll<span class="chev"></span></a>
+    <div class="lights" aria-label="switch state">
+      <button data-i="1" style="--c:#FF453A" title="working" aria-label="working"></button>
+      <button data-i="2" style="--c:#FFD60A" title="needs you" aria-label="needs you"></button>
+      <button data-i="0" style="--c:#30D158" title="ready" aria-label="ready"></button>
+    </div>
+  </section>
+
+  <section class="about" id="about">
+    <h1>Claude Traffic Light</h1>
+    <p class="tag">A tiny macOS menu bar app that shows what every Claude&nbsp;Code session is doing — at a glance.</p>
+
+    <div class="states">
+      <div class="chip"><span class="dot red"></span> Working</div>
+      <div class="chip"><span class="dot yellow"></span> Needs you</div>
+      <div class="chip"><span class="dot green"></span> Ready</div>
+    </div>
+
+    <p class="desc">It puts a little bot in your menu bar that turns <b>red</b> when it's working,
+      <b>yellow</b> when it's waiting for you to approve something, and <b>green</b> when it's ready —
+      across all your sessions at once. No setup — it plugs straight into Claude&nbsp;Code. And yes,
+      the eyes follow your cursor, nap when it's quiet, and snap to attention when a session needs you.</p>
+
+    <div class="install" id="install" title="Click to copy">
+      <span class="cmd">brew install --cask mitchelmckee/tap/claude-traffic-light</span>
+      <span class="copy" id="copy">copy</span>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="https://github.com/MitchelMckee/claude-traffic-light">View on GitHub&nbsp;→</a>
+    </div>
+
+    <p class="foot">Free &amp; open source · macOS 13+ · <a href="https://github.com/MitchelMckee/claude-traffic-light/releases/latest">Download the DMG</a></p>
+  </section>
+
+<script>
+  const eyes = [...document.querySelectorAll('.eye')];
+  const target = {x: innerWidth/2, y: innerHeight*0.42};
+  let lastMove = Date.now();
+
+  function render(){
+    for(const eye of eyes){
+      const r = eye.getBoundingClientRect();
+      const cx = r.left + r.width/2, cy = r.top + r.height/2;
+      let dx = target.x - cx, dy = target.y - cy;
+      const d = Math.hypot(dx, dy) || 1;
+      const reach = Math.min(1, d / 240);                 // ease in when the cursor is close
+      const maxX = r.width * 0.20, maxY = r.height * 0.20;
+      const px = (dx/d) * maxX * reach;
+      const py = (dy/d) * maxY * reach;
+      eye.querySelector('.pupil').style.transform =
+        `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`;
+    }
+  }
+  function point(x,y){ target.x=x; target.y=y; lastMove=Date.now(); render(); }
+
+  addEventListener('mousemove', e => point(e.clientX, e.clientY));
+  addEventListener('touchstart', e => { const t=e.touches[0]; point(t.clientX, t.clientY); }, {passive:true});
+  addEventListener('touchmove', e => { const t=e.touches[0]; point(t.clientX, t.clientY); }, {passive:true});
+  addEventListener('resize', render);
+  render();
+
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // occasional blink
+  function blink(){ eyes.forEach(e=>e.classList.add('blink')); setTimeout(()=>eyes.forEach(e=>e.classList.remove('blink')), 130); }
+  if(!reduceMotion) setInterval(()=>{ if(Math.random() < 0.55) blink(); }, 3400);
+
+  // gentle look-around when the pointer is still
+  if(!reduceMotion) setInterval(()=>{
+    if(Date.now() - lastMove > 2400){
+      target.x = innerWidth  * (0.30 + Math.random()*0.40);
+      target.y = innerHeight * (0.22 + Math.random()*0.30);
+      render();
+    }
+  }, 2200);
+
+  // click-to-copy install command
+  const inst = document.getElementById('install'), copy = document.getElementById('copy');
+  const CMD = 'brew install --cask mitchelmckee/tap/claude-traffic-light';
+  inst.addEventListener('click', async () => {
+    let ok = true;
+    try{ await navigator.clipboard.writeText(CMD); }
+    catch(e){
+      // fallback for browsers without the async clipboard API
+      const ta = document.createElement('textarea');
+      ta.value = CMD; ta.setAttribute('readonly',''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try{ ok = document.execCommand('copy'); }catch(_){ ok = false; }
+      ta.remove();
+    }
+    copy.textContent = ok ? 'copied!' : 'copy failed';
+    setTimeout(()=>copy.textContent='copy', 1600);
+  });
+
+  // ---- cycle through the three states: colour + eye mood + label ----
+  const STATES = [
+    {bg:'#30D158', squish:1.00, label:'ready'},      // green  — relaxed
+    {bg:'#FF453A', squish:0.82, label:'working'},    // red    — squinting, focused
+    {bg:'#FFD60A', squish:1.18, label:'needs you'},  // yellow — wide awake
+  ];
+  const hero = document.querySelector('.hero');
+  const statusEl = document.getElementById('status');
+  const lightBtns = [...document.querySelectorAll('.lights button')];
+  let si = 0;
+  function applyState(i){
+    si = (i % STATES.length + STATES.length) % STATES.length;
+    const s = STATES[si];
+    hero.style.backgroundColor = s.bg;
+    eyes.forEach(e => e.style.setProperty('--squish', s.squish));
+    statusEl.textContent = s.label;
+    statusEl.animate([{opacity:.25,transform:'translateX(-50%) scale(.95)'},
+                      {opacity:1, transform:'translateX(-50%) scale(1)'}], {duration:320, easing:'ease-out'});
+    lightBtns.forEach(b => b.classList.toggle('on', +b.dataset.i === si));
+  }
+  lightBtns.forEach(b => b.addEventListener('click', () => applyState(+b.dataset.i)));
+  const hStart = location.hash.slice(1);                       // #0/#1/#2 forces a state (for testing)
+  applyState(hStart !== '' && !isNaN(+hStart) ? +hStart : Math.floor(Math.random() * STATES.length));
+</script>
+</body>
+</html>
