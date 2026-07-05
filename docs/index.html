@@ -25,8 +25,10 @@
        position:relative;border:0.5vmin solid rgba(0,0,0,.10);transform-origin:center;
        box-shadow:0 1.2vmin 4vmin rgba(0,0,0,.12);
        transition:height .45s cubic-bezier(.4,0,.2,1), transform .13s ease}
-  .eye.blink{transform:scaleY(.07)}
 
+  .hook{position:absolute;top:9vh;left:50%;transform:translateX(-50%);max-width:86vw;
+        text-align:center;color:rgba(0,0,0,.55);font-weight:800;letter-spacing:-.01em;
+        font-size:clamp(16px,4.4vw,21px);user-select:none}
   .status{position:absolute;left:50%;bottom:13vh;transform:translateX(-50%);
           background:rgba(0,0,0,.16);color:rgba(0,0,0,.72);font-weight:700;font-size:16px;
           padding:9px 19px;border-radius:999px;letter-spacing:.01em;user-select:none}
@@ -91,6 +93,7 @@
 <body>
 
   <section class="hero" id="top">
+    <div class="hook">Know when Claude&nbsp;Code needs you</div>
     <div class="face" aria-hidden="true">
       <div class="eye"><div class="pupil"></div></div>
       <div class="eye"><div class="pupil"></div></div>
@@ -106,7 +109,7 @@
 
   <section class="about" id="about">
     <h1>Claude Traffic Light</h1>
-    <p class="tag">A tiny macOS menu bar app that shows what every Claude&nbsp;Code session is doing — at a glance.</p>
+    <p class="tag">A tiny macOS menu bar bot that turns <b>yellow</b> the moment any Claude&nbsp;Code session is waiting on you.</p>
 
     <div class="states">
       <div class="chip"><span class="dot red"></span> Working</div>
@@ -114,10 +117,10 @@
       <div class="chip"><span class="dot green"></span> Ready</div>
     </div>
 
-    <p class="desc">It puts a little bot in your menu bar that turns <b>red</b> when it's working,
-      <b>yellow</b> when it's waiting for you to approve something, and <b>green</b> when it's ready —
-      across all your sessions at once. No setup — it plugs straight into Claude&nbsp;Code. And yes,
-      the eyes follow your cursor, nap when it's quiet, and snap to attention when a session needs you.</p>
+    <p class="desc">Run a few sessions at once and stop checking terminals — one glance shows the most
+      urgent state across all of them, and the moment one is waiting for your approval you'll know.
+      No setup — it plugs straight into Claude&nbsp;Code. And yes, the eyes follow your cursor,
+      nap when it's quiet, and snap to attention when a session needs you.</p>
 
     <div class="install" id="install" title="Click to copy">
       <span class="cmd">brew install --cask mitchelmckee/tap/claude-traffic-light</span>
@@ -132,46 +135,139 @@
   </section>
 
 <script>
+  // ---- eye engine: a small port of the app's EyeAnimator ----
+  // pose: gaze (each axis in [-1,1], +y up), lid closure, cross-eye, pupil scale
   const eyes = [...document.querySelectorAll('.eye')];
-  const target = {x: innerWidth/2, y: innerHeight*0.42};
-  let lastMove = Date.now();
+  const face = document.querySelector('.face');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const pose = {lx:0, ly:0, blink:0, conv:0, pupil:1};
+  let mood = 'chill';                        // chill (ready) · pressure (working) · alert (needs you)
+  let cursor = null, lastMove = Date.now();
 
   function render(){
-    for(const eye of eyes){
-      const r = eye.getBoundingClientRect();
-      const cx = r.left + r.width/2, cy = r.top + r.height/2;
-      let dx = target.x - cx, dy = target.y - cy;
-      const d = Math.hypot(dx, dy) || 1;
-      const reach = Math.min(1, d / 240);                 // ease in when the cursor is close
-      const maxX = r.width * 0.20, maxY = r.height * 0.20;
-      const px = (dx/d) * maxX * reach;
-      const py = (dy/d) * maxY * reach;
+    eyes.forEach((eye, i) => {
+      const maxX = eye.offsetWidth * .20, maxY = eye.offsetHeight * .20;
+      const px = (pose.lx + (i ? -1 : 1) * pose.conv * .9) * maxX;  // conv leans pupils toward the nose
+      const py = -pose.ly * maxY;
       eye.querySelector('.pupil').style.transform =
-        `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`;
-    }
+        `translate(calc(-50% + ${px}px), calc(-50% + ${py}px)) scale(${pose.pupil})`;
+      eye.style.transform = `scaleY(${1 - pose.blink * .93})`;
+    });
   }
-  function point(x,y){ target.x=x; target.y=y; lastMove=Date.now(); render(); }
+  function cursorLook(){
+    const f = face.getBoundingClientRect();
+    const dx = cursor.x - (f.left + f.width/2), dy = cursor.y - (f.top + f.height/2);
+    const d = Math.hypot(dx, dy) || 1, reach = Math.min(1, d / 240);
+    return {lx: dx/d * reach, ly: -dy/d * reach};
+  }
 
+  // waypoint: ease to a pose over `move` frames, hold for `hold` (~12 fps, like the app)
+  const wp = (lx, ly, o={}) => ({lx, ly, blink:o.b||0, conv:o.c||0, move:o.m??6, hold:o.h??8});
+  const CLIPS = [
+    {m:'*',        s:[wp(0,0,{b:1,m:2,h:1}), wp(0,0,{m:3,h:10})]},                                   // blink
+    {m:'*',        s:[wp(0,0,{b:1,m:2,h:1}), wp(0,0,{m:2,h:2}), wp(0,0,{b:1,m:2,h:1}), wp(0,0,{m:3,h:9})]},
+    {m:'*',        s:[wp(-.9,0,{m:6,h:9}), wp(.9,0,{m:8,h:9}), wp(0,0,{m:6,h:8})]},                  // slow scan
+    {m:'*',        s:[wp(0,.8,{m:6,h:9}), wp(0,0,{m:6,h:8})]},                                       // glance up
+    {m:'*',        s:[wp(0,-.7,{m:6,h:9}), wp(0,0,{m:6,h:8})]},                                      // glance down
+    {m:'*',        s:[wp(.85,.25,{m:3,h:6}), wp(0,0,{m:4,h:9})]},                                    // quick look aside
+    {m:'*',        s:[wp(0,.8,{m:4,h:2}), wp(.8,.2,{m:4,h:2}), wp(0,-.7,{m:4,h:2}), wp(-.8,.2,{m:4,h:2}), wp(0,0,{m:4,h:6})]},
+    {m:'chill',    s:[wp(-.5,.1,{m:12,h:16}), wp(0,0,{m:12,h:12})]},                                 // long lazy gaze
+    {m:'chill',    s:[wp(0,0,{b:1,m:5,h:4}), wp(0,0,{m:5,h:14})]},                                   // slow heavy blink
+    {m:'alert',    s:[wp(.9,.1,{m:2,h:3}), wp(0,0,{m:2,h:2}), wp(.9,.1,{m:2,h:4}), wp(0,0,{m:3,h:7})]},   // double take
+    {m:'alert pressure', s:[wp(0,0,{m:2,h:10}), wp(-.8,0,{m:2,h:2}), wp(0,0,{m:3,h:8})]},            // focus + quick check
+    {m:'pressure', s:[wp(.7,0,{m:2,h:2}), wp(0,0,{m:2,h:14})]},                                      // busy glance
+  ];
+  const NAPS = [   // droopy lids, gaze sinks — chained while things stay quiet
+    [wp(0,-.25,{b:.6,m:14,h:24}), wp(0,-.2,{b:.55,m:10,h:20})],
+    [wp(0,-.2,{b:.55,m:8,h:6}), wp(0,-.25,{b:.92,m:8,h:10}), wp(0,-.2,{b:.55,m:10,h:18})],
+    [wp(0,-.25,{b:.95,m:12,h:32}), wp(0,-.2,{b:.6,m:10,h:14})],
+  ];
+  const EGGS = [   // rare, only when calm
+    [wp(0,0,{c:.9,m:4,h:16}), wp(0,0,{m:4,h:6})],                                                    // crossed eyes
+    [wp(0,.8,{m:2,h:0}), wp(.8,0,{m:2,h:0}), wp(0,-.8,{m:2,h:0}), wp(-.8,0,{m:2,h:0}),
+     wp(0,.8,{m:2,h:0}), wp(.8,0,{m:2,h:0}), wp(0,-.8,{m:2,h:0}), wp(-.8,0,{m:2,h:0}),
+     wp(0,0,{b:1,m:2,h:1}), wp(0,0,{m:3,h:6})],                                                      // dizzy spiral
+    [wp(.85,-.1,{b:.35,m:5,h:20}), wp(.85,-.1,{m:3,h:4}), wp(0,0,{m:4,h:6})],                        // suspicious side-eye
+    [wp(0,.9,{m:3,h:10}), wp(.35,.9,{m:3,h:6}), wp(0,0,{m:3,h:5})],                                  // curious peek up
+  ];
+  const REACTIONS = {  // one-shots fired on state switches; they interrupt everything
+    alert:     [wp(0,-.12,{m:1,h:6}), wp(-.2,-.08,{m:2,h:2}), wp(.2,-.08,{m:2,h:2}), wp(0,0,{m:2,h:6})],
+    celebrate: [wp(-.6,.3,{m:2,h:2}), wp(.6,.3,{m:3,h:2}), wp(0,0,{b:1,m:2,h:1}), wp(0,0,{m:2,h:1}),
+                wp(0,0,{b:1,m:2,h:1}), wp(0,0,{m:3,h:5})],
+    wake:      [wp(0,-.1,{b:1,m:1,h:1}), wp(0,0,{m:2,h:2}), wp(-.5,.2,{m:3,h:3}), wp(.5,.1,{m:3,h:3}), wp(0,0,{m:3,h:4})],
+  };
+  const PUPIL = {chill:1, alert:1.12, pressure:.9};      // resting pupil size per mood
+  const TEMPO = {chill:1.4, alert:.85, pressure:1};      // chill is slower, alert is snappy
+
+  let clip = [], step = 0, frame = 0, lastIdx = -1, forced = false, pending = null,
+      recenter = false, followBlink = 0, from = {lx:0, ly:0, blink:0, conv:0};
+  const snapshot = () => ({lx:pose.lx, ly:pose.ly, blink:pose.blink, conv:pose.conv});
+  const appr = (a, b, r) => a + (b - a) * r;
+  const smooth = t => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+
+  function react(name){ if(!reduceMotion) pending = REACTIONS[name]; }
+
+  function startClip(){
+    from = snapshot(); step = 0; frame = 0;
+    if (Date.now() - lastMove > 20000) { clip = pick(NAPS); return; }               // quiet for a while → nap
+    if (mood === 'chill' && Math.random() < 1/110) { clip = pick(EGGS); return; }   // rare easter egg
+    const pool = CLIPS.map((c, i) => i).filter(i => CLIPS[i].m === '*' || CLIPS[i].m.includes(mood));
+    let i = pick(pool);
+    if (pool.length > 1) while (i === lastIdx) i = pick(pool);
+    lastIdx = i;
+    const t = TEMPO[mood];
+    clip = CLIPS[i].s.map(w => ({...w, move: Math.max(1, Math.round(w.move * t)),
+                                       hold: Math.max(1, Math.round(w.hold * t))}));
+  }
+  function advance(){
+    if (step >= clip.length) return;
+    const w = clip[step];
+    if (frame < w.move){
+      const t = smooth((frame + 1) / Math.max(1, w.move));
+      pose.lx = from.lx + (w.lx - from.lx) * t;  pose.ly = from.ly + (w.ly - from.ly) * t;
+      pose.blink = from.blink + (w.blink - from.blink) * t;
+      pose.conv = from.conv + (w.conv - from.conv) * t;
+    } else { pose.lx = w.lx; pose.ly = w.ly; pose.blink = w.blink; pose.conv = w.conv; }
+    frame++;
+    if (frame >= w.move + w.hold){ from = {lx:w.lx, ly:w.ly, blink:w.blink, conv:w.conv}; step++; frame = 0; }
+  }
+  function tick(){
+    pose.pupil = appr(pose.pupil, forced ? 1.25 : PUPIL[mood], .18);   // dilate during reactions
+    if (pending){ clip = pending; pending = null; from = snapshot(); step = 0; frame = 0; forced = true; }
+    if (forced){ advance(); if (step >= clip.length) forced = false; return render(); }
+    if (cursor && Date.now() - lastMove < 2400){                       // follow the pointer
+      const t = cursorLook();
+      pose.conv = appr(pose.conv, 0, .3);
+      pose.lx = appr(pose.lx, t.lx, .3); pose.ly = appr(pose.ly, t.ly, .3);
+      if (followBlink > 0){ followBlink--;
+        pose.blink = followBlink >= 2 ? Math.min(1, pose.blink + .5) : appr(pose.blink, 0, .5);
+      } else { pose.blink = appr(pose.blink, 0, .5); if (Math.random() < 1/48) followBlink = 4; }
+      recenter = true; return render();
+    }
+    if (recenter){    // glide back to centre so the gaze doesn't sweep into a clip (an "eye roll")
+      pose.conv = appr(pose.conv, 0, .4);
+      pose.lx = appr(pose.lx, 0, .4); pose.ly = appr(pose.ly, 0, .4);
+      pose.blink = appr(pose.blink, 0, .5);
+      if (Math.abs(pose.lx) < .02 && Math.abs(pose.ly) < .02){
+        pose.lx = pose.ly = 0; pose.blink = 0; recenter = false; followBlink = 0; step = clip.length;
+      }
+      return render();
+    }
+    if (step >= clip.length) startClip();
+    advance(); render();
+  }
+  function point(x, y){
+    if (Date.now() - lastMove > 20000) react('wake');                  // napping → pop awake
+    cursor = {x, y}; lastMove = Date.now();
+    if (reduceMotion){ const t = cursorLook(); pose.lx = t.lx; pose.ly = t.ly; render(); }
+  }
   addEventListener('mousemove', e => point(e.clientX, e.clientY));
   addEventListener('touchstart', e => { const t=e.touches[0]; point(t.clientX, t.clientY); }, {passive:true});
   addEventListener('touchmove', e => { const t=e.touches[0]; point(t.clientX, t.clientY); }, {passive:true});
   addEventListener('resize', render);
   render();
-
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  // occasional blink
-  function blink(){ eyes.forEach(e=>e.classList.add('blink')); setTimeout(()=>eyes.forEach(e=>e.classList.remove('blink')), 130); }
-  if(!reduceMotion) setInterval(()=>{ if(Math.random() < 0.55) blink(); }, 3400);
-
-  // gentle look-around when the pointer is still
-  if(!reduceMotion) setInterval(()=>{
-    if(Date.now() - lastMove > 2400){
-      target.x = innerWidth  * (0.30 + Math.random()*0.40);
-      target.y = innerHeight * (0.22 + Math.random()*0.30);
-      render();
-    }
-  }, 2200);
+  if (!reduceMotion) setInterval(tick, 83);                            // ~12 fps, same tempo as the app
 
   // click-to-copy install command
   const inst = document.getElementById('install'), copy = document.getElementById('copy');
@@ -193,25 +289,27 @@
 
   // ---- cycle through the three states: colour + eye mood + label ----
   const STATES = [
-    {bg:'#30D158', squish:1.00, label:'ready'},      // green  — relaxed
-    {bg:'#FF453A', squish:0.82, label:'working'},    // red    — squinting, focused
-    {bg:'#FFD60A', squish:1.18, label:'needs you'},  // yellow — wide awake
+    {bg:'#30D158', squish:1.00, label:'ready',     mood:'chill',    react:'celebrate'}, // green  — relaxed
+    {bg:'#FF453A', squish:0.82, label:'working',   mood:'pressure', react:'wake'},      // red    — squinting, focused
+    {bg:'#FFD60A', squish:1.18, label:'needs you', mood:'alert',    react:'alert'},     // yellow — wide awake
   ];
   const hero = document.querySelector('.hero');
   const statusEl = document.getElementById('status');
   const lightBtns = [...document.querySelectorAll('.lights button')];
   let si = 0;
-  function applyState(i){
+  function applyState(i, interactive){
     si = (i % STATES.length + STATES.length) % STATES.length;
     const s = STATES[si];
     hero.style.backgroundColor = s.bg;
     eyes.forEach(e => e.style.setProperty('--squish', s.squish));
+    mood = s.mood;
+    if (interactive) { react(s.react); lastMove = Date.now(); }
     statusEl.textContent = s.label;
     statusEl.animate([{opacity:.25,transform:'translateX(-50%) scale(.95)'},
                       {opacity:1, transform:'translateX(-50%) scale(1)'}], {duration:320, easing:'ease-out'});
     lightBtns.forEach(b => b.classList.toggle('on', +b.dataset.i === si));
   }
-  lightBtns.forEach(b => b.addEventListener('click', () => applyState(+b.dataset.i)));
+  lightBtns.forEach(b => b.addEventListener('click', () => applyState(+b.dataset.i, true)));
   const hStart = location.hash.slice(1);                       // #0/#1/#2 forces a state (for testing)
   applyState(hStart !== '' && !isNaN(+hStart) ? +hStart : Math.floor(Math.random() * STATES.length));
 </script>
