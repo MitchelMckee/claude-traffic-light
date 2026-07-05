@@ -70,6 +70,37 @@
   .chip .dot{width:11px;height:11px;border-radius:50%}
   .dot.red{background:var(--red)} .dot.yellow{background:var(--yellow)} .dot.green{background:var(--green)}
   .desc{font-size:16.5px;line-height:1.7;color:#cfcfd6;margin:0 auto 34px;max-width:600px}
+  /* ---------- MENU BAR DEMO ---------- */
+  .mb-demo{margin:0 auto 44px}
+  .mb-title{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+            color:var(--muted);margin-bottom:22px}
+  .mb-row{margin-bottom:24px}
+  .mbar{display:inline-flex;align-items:center;gap:14px;max-width:100%;
+        background:linear-gradient(#2e2f34,#26272c);border:1px solid #3a3b44;
+        border-radius:10px;padding:5px 13px}
+  .mbar .glyphs{display:flex;align-items:center;gap:13px;opacity:.75}
+  .mbar .clock{font-size:12px;font-weight:500;color:#e8e8ea;letter-spacing:.01em;white-space:nowrap}
+  @media (max-width:360px){
+    .mbar{gap:11px}
+    .mbar .glyphs{gap:11px}
+    .mbar .glyphs svg:first-child{display:none}   /* crowded bar: wifi gets bumped first */
+  }
+  .mbot{flex:none;position:relative;width:22px;height:22px;border-radius:42%;
+        background:var(--c);border:1px solid rgba(0,0,0,.35);
+        display:flex;align-items:center;justify-content:center;gap:2px}
+  .mbot i{display:block;width:8px;height:calc(8px * var(--hf,1.45));background:#fff;
+          border-radius:50%;border:.5px solid rgba(0,0,0,.3);position:relative}
+  .mbot i::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+                 width:55%;height:55%;background:#212121;border-radius:50%}
+  .mdots{display:flex;align-items:center;gap:8px;margin-left:-9px}  /* group gap; lead trims the bar's 14px */
+  .mgroup{display:flex;gap:3px}                                     /* same-color gap */
+  .mdot{width:8px;height:8px;border-radius:50%;background:var(--c);
+        box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)}
+  .mplus{font-size:11px;font-weight:700;color:#e8e8ea;opacity:.85}
+  .mb-cap{font-size:14.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .mb-cap b{color:#e6e6ea}
+  .mb-note{font-size:13px;color:#5b5c66;margin-top:-4px}
+
   .install{display:inline-flex;align-items:center;justify-content:center;flex-wrap:wrap;
            gap:6px 12px;max-width:100%;background:#17181d;border:1px solid #25262d;
            border-radius:12px;padding:14px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -121,6 +152,56 @@
       urgent state across all of them, with optional sound and notification alerts the moment a
       session is blocked or done. No setup — it plugs straight into Claude&nbsp;Code, and clicking
       a session jumps to its terminal.</p>
+
+    <div class="mb-demo">
+      <p class="mb-title">In your menu bar</p>
+
+      <div class="mb-row">
+        <div class="mbar">
+          <span class="mbot" style="--c:var(--red);--hf:1.28"><i></i><i></i></span>
+          <span class="glyphs">
+            <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
+            <svg viewBox="0 0 25 12" width="25" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="21" height="11" rx="3" fill="none" stroke="#d9d9de"/><rect x="2" y="2" width="13" height="8" rx="1.6" fill="#d9d9de"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="#d9d9de"/></svg>
+            <span class="clock">Mon 14:32</span>
+          </span>
+        </div>
+        <p class="mb-cap">One session, working — just the bot, focused.</p>
+      </div>
+
+      <div class="mb-row">
+        <div class="mbar">
+          <span class="mbot" style="--c:var(--red);--hf:1.15"><i></i><i></i></span>
+          <span class="mdots">
+            <span class="mgroup"><span class="mdot" style="--c:var(--yellow)"></span></span>
+            <span class="mgroup"><span class="mdot" style="--c:var(--red)"></span><span class="mdot" style="--c:var(--red)"></span><span class="mdot" style="--c:var(--red)"></span></span>
+            <span class="mgroup"><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span></span>
+          </span>
+          <span class="glyphs">
+            <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
+            <svg viewBox="0 0 25 12" width="25" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="21" height="11" rx="3" fill="none" stroke="#d9d9de"/><rect x="2" y="2" width="13" height="8" rx="1.6" fill="#d9d9de"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="#d9d9de"/></svg>
+            <span class="clock">Mon 14:32</span>
+          </span>
+        </div>
+        <p class="mb-cap">Six sessions — a dot per shell, most urgent first: <b>1 needs you</b> · 3 working · 2 ready.</p>
+      </div>
+
+      <div class="mb-row">
+        <div class="mbar">
+          <span class="mbot" style="--c:var(--green);--hf:1.45"><i></i><i></i></span>
+          <span class="mdots">
+            <span class="mgroup"><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span></span>
+          </span>
+          <span class="glyphs">
+            <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
+            <svg viewBox="0 0 25 12" width="25" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="21" height="11" rx="3" fill="none" stroke="#d9d9de"/><rect x="2" y="2" width="13" height="8" rx="1.6" fill="#d9d9de"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="#d9d9de"/></svg>
+            <span class="clock">Mon 14:32</span>
+          </span>
+        </div>
+        <p class="mb-cap">Everything ready — come collect your diffs.</p>
+      </div>
+
+      <p class="mb-note">More than six shells? The extra dots become a “+N”.</p>
+    </div>
 
     <div class="install" id="install" title="Click to copy">
       <span class="cmd">brew install --cask mitchelmckee/tap/claude-traffic-light</span>
