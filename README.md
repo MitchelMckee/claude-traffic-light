@@ -54,11 +54,32 @@ Claude   ·   1 needs you   ·   3 working   ·   2 ready
 🔴  worker           working
 🟢  notes            done
 ────────────────────────────────────────────────────
+Account usage
+5-hour session   ▓▓▓▓▓░░░  63%   resets in 2h
+Weekly (7-day)   ▓▓▓▓▓▓▓░  77%   resets in 1d
+updated just now  ·  refreshes while Claude runs
+────────────────────────────────────────────────────
 ✓ Alert on permission prompts
 ✓ Alert when a turn finishes
 ────────────────────────────────────────────────────
 Quit                                              ⌘Q
 ```
+
+## How much you have left
+
+Wondering how close you are to being rate-limited? The icon carries a small **usage
+percentage** — your most-used window (5-hour or weekly), turning **red past 85%** so you get a
+heads-up before you're locked out. Click through for both windows as labeled bars, each with
+when it resets.
+
+The numbers come straight from Claude Code's own status line — the same figures `/usage`
+shows — so they're exact, not estimated. One caveat worth knowing: usage only refreshes **while
+a session is running and taking turns** (that's the only moment Claude Code reports it), so when
+everything's idle you see the last-known snapshot with an "updated …" note. Toggle the whole
+thing off with **Show account usage**.
+
+**Warn 30 min before 5-hour reset** (on by default) sends a notification half an hour before
+your 5-hour window resets — scheduled ahead, so it arrives even if nothing's running then.
 
 ## He has moods
 
@@ -73,6 +94,7 @@ you, narrowed under load, and squished flat when everything's running at once:
 ## Features
 
 - 🎯 **One glanceable icon** — aggregate state across all sessions, most-urgent wins.
+- 📊 **Account usage at a glance** — your 5-hour and weekly limit percentages, right in the menu bar, so you know how much you have left before you're rate-limited.
 - 👀 **Per-shell dot strip** — see each session's state without opening anything.
 - ⚡ **Instant alerts** — sound + banner (showing the mascot's current face) the moment a session is blocked or finishes; each is a separate toggle, with a volume slider to keep the sounds as subtle as you like.
 - 🖱️ **Click to focus** — jump to a session's terminal (precise on iTerm2 / Terminal / tmux; best-effort on Ghostty).
@@ -145,7 +167,8 @@ up. Sessions that crash are pruned via a `kill(pid, 0)` liveness check.
 | Hook event | State | Color |
 |---|---|:---:|
 | `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact` | working | 🔴 |
-| `Notification` (permission / confirm prompt) | needs you | 🟡 |
+| `PermissionRequest` (approval dialog shown) | needs you | 🟡 |
+| `Notification` (permission / confirm prompt — fallback for older Claude Code) | needs you | 🟡 |
 | `Stop` (turn finished) | ready | 🟢 |
 | `SessionStart` | ready | 🟢 |
 | `SubagentStop`, idle nudge | *ignored* | — |
@@ -154,6 +177,12 @@ up. Sessions that crash are pruned via a `kill(pid, 0)` liveness check.
 **Decay** (so stale states don't lie — tunable in `Sources/StateStore.swift`): a finished turn
 fades to plain idle after 5 min; a working session with a live `claude` process never falsely
 decays (so long builds stay red); an abandoned permission prompt relaxes after 30 min.
+
+**Account usage** rides a second, documented channel: Claude Code passes your subscription
+rate-limit windows (`five_hour` / `seven_day`) to a *status line* command, so setup also wires
+`cc-statusline.sh`. It snapshots those percentages to `~/.claude/menubar-state/usage.json` (which
+the app already watches) and prints a compact `model · ctx% · usage%` line back to your terminal.
+If you already run a custom status line, setup leaves it alone and the usage % simply stays blank.
 
 ## Customize
 

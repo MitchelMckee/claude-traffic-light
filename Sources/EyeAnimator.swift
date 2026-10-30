@@ -59,7 +59,28 @@ final class EyeAnimator {
     /// Advance one frame for the given mood. Returns true if the pose moved.
     func tick(mood: Mood) -> Bool {
         let before = pose
+        stepPose(mood: mood)
+        settleWhites()
+        return moved(before)
+    }
 
+    /// Whites-follow layer, applied after every pose update: each eyeball
+    /// drifts in its pupil's direction, easing a beat behind the pupil (the
+    /// landing-page hero's trick). The menubar canvas is tiny — pupil travel
+    /// is under 2pt — so the drift is far more exaggerated than the page's
+    /// 28%, or it disappears entirely: horizontal is capped by the body edge
+    /// (~55% keeps the eye inside the blob), vertical has room to go bigger.
+    private func settleWhites() {
+        let driftX: CGFloat = 0.55, driftY: CGFloat = 0.75, ease: CGFloat = 0.18
+        let lt = CGVector(dx: (pose.look.dx + pose.converge) * driftX, dy: pose.look.dy * driftY)
+        let rt = CGVector(dx: (pose.look.dx - pose.converge) * driftX, dy: pose.look.dy * driftY)
+        pose.whiteL = CGVector(dx: approach(pose.whiteL.dx, lt.dx, ease),
+                               dy: approach(pose.whiteL.dy, lt.dy, ease))
+        pose.whiteR = CGVector(dx: approach(pose.whiteR.dx, rt.dx, ease),
+                               dy: approach(pose.whiteR.dy, rt.dy, ease))
+    }
+
+    private func stepPose(mood: Mood) {
         // 1) A queued reaction interrupts everything.
         if let p = pending {
             active = p; pending = nil; step = 0; frame = 0
@@ -74,8 +95,9 @@ final class EyeAnimator {
         if forced {
             advance()
             if step >= active.count { forced = false; reactionKind = nil; step = active.count }
-            return moved(before)
+            return
         }
+
 
         // 2) Cursor-follow: ease toward the target instead of playing clips.
         if let t = lookTarget {
@@ -90,7 +112,7 @@ final class EyeAnimator {
                 if Int.random(in: 0 ..< 48) == 0 { followBlink = 4 }   // occasional blink
             }
             recentering = true   // glide back to centre when the mouse leaves
-            return moved(before)
+            return
         }
 
         // 3) Just left cursor-follow: glide the gaze straight back to centre, so
@@ -105,13 +127,12 @@ final class EyeAnimator {
                 fromLook = .zero; fromBlink = 0; fromConverge = 0
                 step = active.count          // resume clips from centre
             }
-            return moved(before)
+            return
         }
 
         // 4) Clip-driven: nap, easter egg, or a normal mood clip.
         if step >= active.count { startClip(mood: mood) }
         advance()
-        return moved(before)
     }
 
     private func advance() {
@@ -158,9 +179,12 @@ final class EyeAnimator {
     }
 
     private func moved(_ before: EyePose) -> Bool {
-        abs(pose.look.dx - before.look.dx) + abs(pose.look.dy - before.look.dy)
-            + abs(pose.blink - before.blink) + abs(pose.converge - before.converge)
-            + abs(pose.pupil - before.pupil) > 0.003
+        var delta = abs(pose.look.dx - before.look.dx) + abs(pose.look.dy - before.look.dy)
+        delta += abs(pose.blink - before.blink) + abs(pose.converge - before.converge)
+        delta += abs(pose.pupil - before.pupil)
+        delta += abs(pose.whiteL.dx - before.whiteL.dx) + abs(pose.whiteL.dy - before.whiteL.dy)
+        delta += abs(pose.whiteR.dx - before.whiteR.dx) + abs(pose.whiteR.dy - before.whiteR.dy)
+        return delta > 0.003
     }
 
     private func approach(_ a: CGFloat, _ b: CGFloat, _ rate: CGFloat) -> CGFloat { a + (b - a) * rate }

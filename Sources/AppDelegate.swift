@@ -4,6 +4,7 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = StateStore()
+    private lazy var usageStore = UsageStore(stateDir: store.dir)
     private let menu = NSMenu()
 
     private var watcher: DirectoryWatcher?
@@ -41,13 +42,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var alertedAt: [String: Double] = [:]
     private let alertDwell: TimeInterval = 0    // fire the instant a turn finishes (raise to debounce quick turns)
     private var notifReady = false              // UNUserNotificationCenter authorized -> show the mascot face
+    private var scheduledResetAt: Double = 0    // 5-hour reset we've already queued a warning for
 
     private let defaults = UserDefaults.standard
 
     // MARK: lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        for key in ["alertOnPermission", "alertOnFinished", "showDots", "playSound"] where defaults.object(forKey: key) == nil {
+        for key in ["alertOnPermission", "alertOnFinished", "showDots", "playSound", "showUsage", "warnBeforeReset"] where defaults.object(forKey: key) == nil {
             defaults.set(true, forKey: key)
         }
         if defaults.object(forKey: "soundVolume") == nil { defaults.set(1.0, forKey: "soundVolume") }
@@ -112,15 +114,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let hookDst = ("~/.claude/hooks/cc-hook.sh" as NSString).expandingTildeInPath
 
         // Already wired up: refresh just the hook script when the bundled copy
-        // changed (e.g. an app update fixed a bug), without re-touching settings.json.
+        // changed (e.g. an app update fixed a bug), without re-touching settings.json —
+        // unless an event this version depends on isn't registered yet, in which case
+        // fall through and re-run the (idempotent, settings-backed-up) setup script.
         if FileManager.default.fileExists(atPath: hookDst) {
-            if let src = Bundle.main.path(forResource: "cc-hook", ofType: "sh"),
-               !filesEqual(src, hookDst),
-               let data = try? Data(contentsOf: URL(fileURLWithPath: src)) {
-                try? data.write(to: URL(fileURLWithPath: hookDst))
-                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookDst)
-            }
-            return
+            refreshBundledScript(resource: "cc-hook", dst: hookDst)
+            // The statusLine reader (account-usage) ships alongside; keep it fresh too.
+            let statusDst = ("~/.claude/hooks/cc-statusline.sh" as NSString).expandingTildeInPath
+            refreshBundledScript(resource: "cc-statusline", dst: statusDst)
+            // PermissionRequest fires the moment an approval dialog appears; without
+            // it, yellow waits on the (much slower) Notification event. The statusLine
+            // command is what feeds account usage — re-run setup if either is missing.
+            if hookWired(event: "PermissionRequest") && statusLineWired() { return }
         }
 
         guard let script = Bundle.main.path(forResource: "setup-hooks", ofType: "sh") else { return }
@@ -143,6 +148,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
                     title: ok ? "Claude Traffic Light is ready" : "Setup didn't finish",
                     body: ok ? "Hooks installed — start a new Claude Code session to see it light up."
                              : "Couldn't wire the Claude hooks. See the README to set up manually.")
+            }
+        }
+    }
+
+    /// Overwrite an installed hook script with the bundled copy when they differ
+    /// (e.g. an app update fixed a bug), preserving its executable bit.
+    private func refreshBundledScript(resource: String, dst: String) {
+        guard let src = Bundle.main.path(forResource: resource, ofType: "sh"),
+              !filesEqual(src, dst),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: src)) else { return }
+        try? data.write(to: URL(fileURLWithPath: dst))
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst)
+    }
+
+    /// True when settings.json's statusLine command is ours (cc-statusline.sh) —
+    /// the hook that feeds account usage. A user's own custom statusLine reads
+    /// as "not wired" so setup leaves it untouched.
+    private func statusLineWired() -> Bool {
+        let path = ("~/.claude/settings.json" as NSString).expandingTildeInPath
+        guard let data = FileManager.default.contents(atPath: path),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let sl = root["statusLine"] as? [String: Any],
+              let cmd = sl["command"] as? String else { return false }
+        return cmd.contains("cc-statusline.sh")
+    }
+
+    /// True when ~/.claude/settings.json already routes `event` to cc-hook.sh.
+    private func hookWired(event: String) -> Bool {
+        let path = ("~/.claude/settings.json" as NSString).expandingTildeInPath
+        guard let data = FileManager.default.contents(atPath: path),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any],
+              let entries = hooks[event] as? [[String: Any]] else { return false }
+        return entries.contains { entry in
+            ((entry["hooks"] as? [[String: Any]]) ?? []).contains {
+                (($0["command"] as? String) ?? "").contains("cc-hook.sh")
             }
         }
     }
@@ -176,6 +217,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
     private var alertOnFinished: Bool { defaults.bool(forKey: "alertOnFinished") }
     private var showDots: Bool { defaults.bool(forKey: "showDots") }
     private var playSound: Bool { defaults.bool(forKey: "playSound") }
+    private var warnBeforeReset: Bool { defaults.bool(forKey: "warnBeforeReset") }
+    private var showUsage: Bool { defaults.bool(forKey: "showUsage") }
     private var soundVolume: Float { defaults.float(forKey: "soundVolume") }
     private var boringMode: Bool { defaults.bool(forKey: "boringMode") }
 
@@ -209,11 +252,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         droopBias = min(1, night + fatigue * 0.55)
         eyes.droop = droopBias
 
-        let overflow = showDots ? max(0, displayStates.count - kMaxStatusDots) : 0
-        statusItem.button?.title = overflow > 0 ? " +\(overflow)" : ""
+        updateStatusTitle()
 
         renderStatusBar(force: true)
         handleAlerts(sessions: sessions, now: now)
+        scheduleResetWarning(now: now)
         // NOTE: never rebuild `menu` while it's open — mutating an open NSMenu
         // (removeAllItems + re-add) leaves a stuck blank gap. The menu is rebuilt
         // fresh each time it opens via menuNeedsUpdate(_:), which is enough.
@@ -295,8 +338,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         // A mask override or boring mode ignores pose/mood, so keep them out of
         // the dedup key then — the eye animation must not force needless re-tints.
         let faceless = hasMascotMask() || boringMode
+        // Whites drift is small (≤ ~0.28 of pupil travel), so it gets a finer
+        // quantum than the other channels or its catch-up frames would dedup away.
         let poseKey = faceless ? (boringMode ? "boring" : "mask")
             : "\(Int(p.look.dx * 18))/\(Int(p.look.dy * 18))/\(Int(p.blink * 18))/\(Int(p.converge * 18))/\(Int(p.pupil * 18))"
+            + "/\(Int(p.whiteL.dx * 64))/\(Int(p.whiteL.dy * 64))/\(Int(p.whiteR.dx * 64))/\(Int(p.whiteR.dy * 64))"
         let moodKey = faceless ? "" : "\(displayMood)"
         let sig = displayBody.colorKey + "#\(moodKey)#dots:\(showDots)#fade:\(Int(fadeT * 50))#"
                 + states.map { $0.colorKey }.joined(separator: ",") + "#" + poseKey
@@ -305,6 +351,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         statusItem.button?.image = statusImage(body: displayBody, states: states,
                                                height: kMenubarHeight, pose: p, mood: displayMood,
                                                bodyColor: displayColor, eyes: !boringMode)
+    }
+
+    /// The text riding after the mascot: the account-usage percentage (red once
+    /// it's near the limit) and, if more shells are open than fit as dots, the
+    /// "+N" overflow. Empty attributed title clears it.
+    private func updateStatusTitle() {
+        let font = NSFont.menuBarFont(ofSize: 0)
+        let title = NSMutableAttributedString()
+        if showUsage, let pct = usageStore.load()?.peakPercent {
+            let hot = pct >= kUsageHotPercent
+            title.append(NSAttributedString(string: " \(pct)%", attributes: [
+                .font: font, .foregroundColor: hot ? NSColor.systemRed : NSColor.labelColor]))
+        }
+        let overflow = showDots ? max(0, displayStates.count - kMaxStatusDots) : 0
+        if overflow > 0 {
+            title.append(NSAttributedString(string: " +\(overflow)", attributes: [
+                .font: font, .foregroundColor: NSColor.secondaryLabelColor]))
+        }
+        statusItem.button?.attributedTitle = title
     }
 
     private func handleAlerts(sessions: [SessionState], now: Double) {
@@ -365,21 +430,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         let title = permission ? "Claude needs your input" : "Claude finished — your turn"
         let body = s.label.isEmpty ? "A session is waiting." : s.label
         if notifReady {
-            postOwnNotification(title: title, body: body)
+            postOwnNotification(title: title, body: body, permission: permission)
         } else {
             postBanner(title: title, body: body)
         }
     }
 
-    /// Post via UNUserNotificationCenter — uses the app icon (the mascot) and
-    /// attaches a snapshot of his current face/mood.
-    private func postOwnNotification(title: String, body: String) {
+    private let kResetWarningId = "five-hour-reset-warning"
+
+    /// Queue a banner for 30 min before the 5-hour window resets. Scheduled
+    /// ahead of time so it fires even when no session is running to refresh
+    /// usage; a fixed identifier means a new reset time replaces the old one.
+    private func scheduleResetWarning(now: Double) {
+        guard warnBeforeReset else {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [kResetWarningId])
+            scheduledResetAt = 0   // re-enabling re-queues the warning
+            return
+        }
+        guard notifReady, let reset = usageStore.load()?.fiveHour?.resetsAt,
+              reset != scheduledResetAt else { return }
+        scheduledResetAt = reset
+        let fireIn = reset - 30 * 60 - now
+        guard fireIn > 0 else { return }   // already inside the last 30 min
+        let content = UNMutableNotificationContent()
+        content.title = "5-hour limit resets in 30 minutes"
+        content.body = "Your Claude session window refreshes soon."
+        content.sound = playSound ? .default : nil
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: fireIn, repeats: false)
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: kResetWarningId, content: content, trigger: trigger))
+    }
+
+    /// Post via UNUserNotificationCenter — the banner icon is always the app
+    /// icon (macOS won't tint banners), so the state color rides along as an
+    /// attached mascot image: yellow for a blocking prompt, green for a
+    /// finished turn.
+    private func postOwnNotification(title: String, body: String, permission: Bool) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = nil                       // we already played the sound instantly
+        if let att = mascotAttachment(permission: permission) { content.attachments = [att] }
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req)
+    }
+
+    /// A state-colored mascot PNG for the notification thumbnail. The system
+    /// moves the file into its own attachment store on delivery, so a fresh
+    /// temp file per notification is correct (no cleanup needed on success).
+    private func mascotAttachment(permission: Bool) -> UNNotificationAttachment? {
+        let state: EffectiveState = permission ? .permission : .finished
+        let img = mascotImage(color: state.color, height: 256,
+                              mood: permission ? .alert : .chill)
+        guard let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cc-notif-\(UUID().uuidString).png")
+        do {
+            try png.write(to: url)
+            return try UNNotificationAttachment(identifier: "state", url: url)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
     }
 
     /// Fallback macOS banner via osascript (used only if the user denies the
@@ -468,6 +582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
 
         menu.addItem(.separator())
+        addUsageSection(to: menu, now: now)
 
         let permItem = NSMenuItem(title: "Alert on permission prompts",
                                   action: #selector(toggleAlertPermission), keyEquivalent: "")
@@ -495,6 +610,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         dotsItem.state = showDots ? .on : .off
         menu.addItem(dotsItem)
 
+        let usageItem = NSMenuItem(title: "Show account usage", action: #selector(toggleUsage), keyEquivalent: "")
+        usageItem.target = self
+        usageItem.state = showUsage ? .on : .off
+        usageItem.toolTip = "Show how much of your 5-hour and weekly limits you've used"
+        menu.addItem(usageItem)
+
+        let resetItem = NSMenuItem(title: "Warn 30 min before 5-hour reset", action: #selector(toggleResetWarning), keyEquivalent: "")
+        resetItem.target = self
+        resetItem.state = warnBeforeReset ? .on : .off
+        resetItem.toolTip = "Notify you half an hour before your 5-hour usage limit resets"
+        menu.addItem(resetItem)
+
         let boringItem = NSMenuItem(title: "Boring mode", action: #selector(toggleBoring), keyEquivalent: "")
         boringItem.target = self
         boringItem.state = boringMode ? .on : .off
@@ -517,6 +644,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
         }
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
+    }
+
+    /// The "Account usage" panel: a header plus the two-bar usage view, shown
+    /// only when we have a snapshot to render. Adds its own trailing separator
+    /// so it groups cleanly without leaving a double rule when there's no data.
+    private func addUsageSection(to menu: NSMenu, now: Double) {
+        guard showUsage, let usage = usageStore.load(), usage.mostConstrained != nil else { return }
+        let header = NSMenuItem(title: "Account usage", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        menu.addItem(header)
+        let item = NSMenuItem()
+        item.view = UsageMenuView(usage: usage, now: now)
+        menu.addItem(item)
+        menu.addItem(.separator())
     }
 
     /// Speaker-to-speaker volume slider, shown as a menu row under "Play a sound".
@@ -598,6 +739,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUser
 
     @objc private func toggleSound() {
         defaults.set(!playSound, forKey: "playSound")
+        refresh()
+    }
+
+    @objc private func toggleUsage() {
+        defaults.set(!showUsage, forKey: "showUsage")
+        refresh()
+    }
+
+    @objc private func toggleResetWarning() {
+        defaults.set(!warnBeforeReset, forKey: "warnBeforeReset")
         refresh()
     }
 

@@ -20,14 +20,14 @@ PAYLOAD="$(cat)"
 HAVE_JQ=0; command -v jq >/dev/null 2>&1 && HAVE_JQ=1
 
 # --- parse the hook payload (one jq call, or a sed fallback) ----------------
-EVENT=""; SESSION=""; CWD=""; SOURCE=""; NTYPE=""; MESSAGE=""
+EVENT=""; SESSION=""; CWD=""; SOURCE=""; NTYPE=""; MESSAGE=""; TOOL=""
 if [ "$HAVE_JQ" = 1 ]; then
   # @sh shell-quotes every value, so this eval is injection-safe.
-  eval "$(printf '%s' "$PAYLOAD" | jq -r '@sh "EVENT=\(.hook_event_name // "") SESSION=\(.session_id // "") CWD=\(.cwd // "") SOURCE=\(.source // "") NTYPE=\(.notification_type // "") MESSAGE=\(.message // "")"' 2>/dev/null)"
+  eval "$(printf '%s' "$PAYLOAD" | jq -r '@sh "EVENT=\(.hook_event_name // "") SESSION=\(.session_id // "") CWD=\(.cwd // "") SOURCE=\(.source // "") NTYPE=\(.notification_type // "") MESSAGE=\(.message // "") TOOL=\(.tool_name // "")"' 2>/dev/null)"
 else
   _g() { printf '%s' "$PAYLOAD" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1; }
   EVENT="$(_g hook_event_name)"; SESSION="$(_g session_id)"; CWD="$(_g cwd)"; SOURCE="$(_g source)"
-  NTYPE="$(_g notification_type)"; MESSAGE="$(_g message)"
+  NTYPE="$(_g notification_type)"; MESSAGE="$(_g message)"; TOOL="$(_g tool_name)"
 fi
 
 [ -n "$SESSION" ] || exit 0
@@ -77,8 +77,18 @@ case "$EVENT" in
   PreCompact)       STATE="working";  REASON="compacting context" ;;
   Stop)             STATE="finished"; REASON="finished — your turn" ;;
   SubagentStop)     exit 0 ;;                       # subagent done; main agent still working
+  PermissionRequest)
+    # Fires the instant the approval dialog is drawn — well before the
+    # Notification event, which rides Claude Code's notification channel and
+    # can lag by many seconds. Emitting nothing on stdout leaves the dialog's
+    # normal flow untouched; we only record the state.
+    STATE="permission"
+    REASON="${TOOL:+wants to use ${TOOL}}"; REASON="${REASON:-needs your input}" ;;
   Notification)
-    # Only a real permission/approval prompt should turn the session yellow.
+    # Fallback for Claude Code versions without the PermissionRequest event
+    # (idempotency below keeps it from resetting a decay clock PermissionRequest
+    # already started). Only a real permission/approval prompt should turn the
+    # session yellow.
     # Other notifications -- the ~60s "waiting for your input" idle nudge (which
     # can fire mid-work, e.g. while a subagent runs), auth/info notices -- must
     # NOT flip a working session to "needs you". Prefer the machine-readable

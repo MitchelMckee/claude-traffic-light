@@ -7,17 +7,45 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <title>Claude Traffic Light</title>
-<meta name="description" content="A tiny macOS menu bar app that shows what every Claude Code session is doing — at a glance.">
+<meta name="description" content="A tiny macOS menu bar app that shows what every Claude Code session is doing, at a glance.">
+<link rel="preconnect" href="https://api.fontshare.com">
+<link rel="preconnect" href="https://cdn.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=pilcrow-rounded@400,500,700&display=swap" rel="stylesheet">
+<script>document.documentElement.classList.add('js')</script>
 <style>
   :root{
-    --green:#30D158; --red:#FF453A; --yellow:#FFD60A;
-    --ink:#1c1c1e; --pupil:#212121;
-    --bg:#0e0f12; --fg:#f5f5f7; --muted:#a1a1aa;
+    --red:#FF453A; --yellow:#FFD60A; --green:#30D158;
+    --ground:#0e0f12; --ground-2:#17181d; --ground-3:#22232a;
+    --ink:#f5f5f7; --ink-soft:#b4b4bd; --dark:#111214; --pupil:#212121;
+    --margin:clamp(16px,2.6vw,40px);
+    --step-small:clamp(0.8125rem,0.79rem + 0.1vw,0.875rem);
+    --step-body:clamp(1.0625rem,1rem + 0.25vw,1.1875rem);
+    --step-lead:clamp(1.25rem,1.1rem + 0.7vw,1.625rem);
+    --step-head:clamp(2.25rem,1.3rem + 3.6vw,4.75rem);
+    --step-display:clamp(3.25rem,6.4vw,7.5rem);
+    --ease-out:cubic-bezier(.22,1,.36,1);
+    font-family:"Pilcrow Rounded",ui-rounded,-apple-system,BlinkMacSystemFont,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
-       background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased}
+  body{background:var(--ground);color:var(--ink);font-size:var(--step-body);line-height:1.5;
+       -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  a{color:inherit}
+  img{display:block;max-width:100%}
+  button{font:inherit;color:inherit;cursor:pointer}
+  :focus-visible{outline:3px solid var(--ink);outline-offset:3px;border-radius:999px}
+  ::selection{background:var(--yellow);color:var(--dark)}
+  h1,h2,h3{font-weight:700;letter-spacing:-.045em;line-height:.92;text-wrap:balance}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88em}
+
+  /* the motif: one lamp = one session. pills and dots everywhere a box would go */
+  .pill{display:inline-flex;align-items:center;gap:.55em;border:0;border-radius:999px;
+        padding:.8em 1.35em;font-weight:500;font-size:var(--step-body);text-decoration:none;
+        background:var(--dark);color:var(--ink);
+        transition:transform .18s var(--ease-out),background-color .2s}
+  .pill:hover{transform:translateY(-2px)}
+  .pill:active{transform:translateY(0) scale(.97)}
+  .lamp{display:inline-block;width:.62em;height:.62em;border-radius:50%;background:var(--c,var(--green));flex:none}
 
   /* ---------- HERO ---------- */
   .hero{height:100svh;background-color:var(--green);transition:background-color .55s ease;
@@ -28,12 +56,9 @@
        box-shadow:0 1.2vmin 4vmin rgba(0,0,0,.12);
        transition:height .45s cubic-bezier(.4,0,.2,1), transform .13s ease}
 
-  .hook{position:absolute;top:9vh;left:50%;transform:translateX(-50%);max-width:86vw;
-        text-align:center;color:rgba(0,0,0,.55);font-weight:800;letter-spacing:-.01em;
-        font-size:clamp(16px,4.4vw,21px);user-select:none}
-  .status{position:absolute;left:50%;bottom:13vh;transform:translateX(-50%);
-          background:rgba(0,0,0,.16);color:rgba(0,0,0,.72);font-weight:700;font-size:16px;
-          padding:9px 19px;border-radius:999px;letter-spacing:.01em;user-select:none}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .hero-row{position:absolute;left:50%;bottom:13vh;transform:translateX(-50%);display:flex;align-items:center;gap:10px}
+  .hero-row .pill{font-size:16px;padding:9px 19px;font-weight:700}
 
   /* subtle traffic light to switch states */
   .lights{position:absolute;right:24px;bottom:24px;display:flex;flex-direction:column;gap:9px;
@@ -61,78 +86,198 @@
                 border-right:2.5px solid rgba(0,0,0,.5);border-bottom:2.5px solid rgba(0,0,0,.5);
                 transform:rotate(45deg);animation:bob 1.6s ease-in-out infinite}
   @keyframes bob{0%,100%{transform:rotate(45deg) translate(0,0)}50%{transform:rotate(45deg) translate(3px,3px)}}
+  @media (prefers-reduced-motion:reduce){ .scroll .chev{animation:none} .status{transition:none} }
 
-  /* ---------- ABOUT ---------- */
-  .about{max-width:720px;margin:0 auto;padding:14vh 28px 16vh;text-align:center}
-  .about h1{font-size:clamp(34px,6vw,56px);font-weight:800;letter-spacing:-.02em}
-  .tag{margin-top:18px;font-size:clamp(17px,2.4vw,21px);color:var(--muted);line-height:1.5}
-  .states{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:34px 0}
-  .chip{display:flex;align-items:center;gap:9px;padding:9px 16px;border-radius:999px;
-        background:#17181d;border:1px solid #25262d;font-size:15px;font-weight:600}
-  .chip .dot{width:11px;height:11px;border-radius:50%}
-  .dot.red{background:var(--red)} .dot.yellow{background:var(--yellow)} .dot.green{background:var(--green)}
-  .desc{font-size:16.5px;line-height:1.7;color:#cfcfd6;margin:0 auto 34px;max-width:600px}
-  /* ---------- MENU BAR DEMO ---------- */
-  .mb-demo{margin:0 auto 44px}
-  .mb-title{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-            color:var(--muted);margin-bottom:22px}
-  .mb-row{margin-bottom:24px}
-  .mbar{display:inline-flex;align-items:center;gap:14px;max-width:100%;
-        background:linear-gradient(#2e2f34,#26272c);border:1px solid #3a3b44;
-        border-radius:10px;padding:5px 13px}
-  .mbar .glyphs{display:flex;align-items:center;gap:13px;opacity:.75}
-  .mbar .clock{font-size:12px;font-weight:500;color:#e8e8ea;letter-spacing:.01em;white-space:nowrap}
-  @media (max-width:360px){
-    .mbar{gap:11px}
-    .mbar .glyphs{gap:11px}
-    .mbar .glyphs svg:first-child{display:none}   /* crowded bar: wifi gets bumped first */
+  /* ---------- SHOWCASE: the menu bar, blown up (the live thing) ---------- */
+  .showcase{position:relative;min-height:92svh;overflow:hidden;background:var(--field,var(--red));color:var(--dark);
+            transition:background-color .5s ease;padding:clamp(56px,9vh,104px) var(--margin)}
+  .showcase .copy{position:relative;z-index:2;max-width:34rem}
+  .showcase h2{font-size:var(--step-head)}
+  .showcase .lede{font-size:var(--step-lead);line-height:1.3;margin-top:.6em;font-weight:500;min-height:2.6em}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}
+  .controls .pill{font-size:var(--step-small);padding:.75em 1.15em}
+  .controls .pill.quiet{background:rgba(0,0,0,.14);color:var(--dark)}
+  .hint{font-size:var(--step-small);margin-top:14px;opacity:.75}
+  .bigbar{position:absolute;right:-7vw;bottom:8vh;z-index:1;font-size:clamp(70px,9.6vw,200px)}
+  /* the real menu bar item, built in em at true proportions */
+  .mbar{display:inline-flex;align-items:center;gap:.6em;background:#2a2b30;border-radius:.42em;padding:.32em .7em .32em .5em;color:#e8e8ea}
+  .mbot{flex:none;position:relative;width:1.375em;height:1.375em;border-radius:.42em;background:var(--c);
+        display:flex;align-items:center;justify-content:center;gap:.12em;box-shadow:inset 0 0 0 .04em rgba(0,0,0,.35); /* taste-skill-ignore: the app's bot has a dark edge */
+        transition:background-color .35s}
+  .mbot i{display:block;width:.46em;height:calc(.46em * var(--hf,1.45));background:#fff;border-radius:50%;position:relative;
+          transition:height .35s var(--ease-out)}
+  .mbot i::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:55%;height:55%;background:var(--pupil);border-radius:50%}
+  .mdots{display:flex;align-items:center;gap:.36em}
+  .mgroup{display:flex;gap:.14em}
+  .mdot{width:.42em;height:.42em;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 .03em rgba(0,0,0,.25)} /* taste-skill-ignore: the app's dots have a dark edge */
+  .mplus{font-size:.5em;font-weight:700}
+  .mglyphs{display:flex;align-items:center;gap:.6em;opacity:.8}
+  .mglyphs svg{width:.75em;height:auto}
+  .mclock{font-size:.56em;font-weight:500;white-space:nowrap}
+  @media (prefers-reduced-motion:no-preference){
+    .mdot.is-new{animation:pop .42s var(--ease-out)}
   }
-  .mbot{flex:none;position:relative;width:22px;height:22px;border-radius:42%;
-        background:var(--c);border:1px solid rgba(0,0,0,.35);
-        display:flex;align-items:center;justify-content:center;gap:2px}
-  .mbot i{display:block;width:8px;height:calc(8px * var(--hf,1.45));background:#fff;
-          border-radius:50%;border:.5px solid rgba(0,0,0,.3);position:relative}
-  .mbot i::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-                 width:55%;height:55%;background:#212121;border-radius:50%}
-  .mdots{display:flex;align-items:center;gap:8px;margin-left:-9px}  /* group gap; lead trims the bar's 14px */
-  .mgroup{display:flex;gap:3px}                                     /* same-color gap */
-  .mdot{width:8px;height:8px;border-radius:50%;background:var(--c);
-        box-shadow:inset 0 0 0 .5px rgba(0,0,0,.25)}
-  .mplus{font-size:11px;font-weight:700;color:#e8e8ea;opacity:.85}
-  .mb-cap{font-size:14.5px;color:var(--muted);margin-top:10px;line-height:1.5}
-  .mb-cap b{color:#e6e6ea}
-  .mb-note{font-size:13px;color:#5b5c66;margin-top:-4px}
+  @keyframes pop{from{transform:scale(.2);opacity:0}to{transform:scale(1);opacity:1}}
+  @media (max-width:640px){
+    .showcase{min-height:86svh}
+    .bigbar{font-size:19vw;right:auto;left:var(--margin);bottom:5vh}
+    .controls .pill{flex:1 1 calc(50% - 10px);justify-content:center;padding:.95em 1em}
+  }
 
-  .install{display:inline-flex;align-items:center;justify-content:center;flex-wrap:wrap;
-           gap:6px 12px;max-width:100%;background:#17181d;border:1px solid #25262d;
-           border-radius:12px;padding:14px 18px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-           font-size:clamp(12px,3.4vw,14.5px);color:#e6e6ea;cursor:pointer;transition:border-color .2s}
-  .install:hover{border-color:#3a3b44}
-  .install .cmd{overflow-wrap:anywhere;text-align:left}
-  .install .copy{font-size:12px;color:var(--muted);font-family:inherit}
-  .actions{margin-top:30px}
-  .btn{display:inline-block;background:var(--green);color:#04210d;font-weight:700;font-size:16px;
-       text-decoration:none;padding:15px 28px;border-radius:999px;transition:transform .12s ease, box-shadow .2s}
-  .btn:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(48,209,88,.35)}
-  .foot{margin-top:9vh;color:#5b5c66;font-size:13px}
-  .foot a{color:#8a8b95}
+  /* ---------- FEATURES: close-ups on a board ---------- */
+  .board{display:grid;grid-template-columns:repeat(12,1fr);grid-auto-rows:104px;grid-auto-flow:dense;gap:8px;padding:8px 10px}
+  .tile{position:relative;overflow:hidden;background:var(--bg,var(--ground-2));color:var(--fg,var(--ink));border-radius:22px}
+  .tile .cap{position:absolute;left:20px;bottom:18px;right:20px;z-index:2}
+  .tile .cap b{display:block;font-weight:500;font-size:1.125rem;letter-spacing:-.01em}
+  .tile .cap span{display:block;font-size:var(--step-small);opacity:.8;max-width:34ch;line-height:1.35;margin-top:2px}
+  .tile .ui{position:absolute;white-space:nowrap}
+  .t-6x4{grid-column:span 6;grid-row:span 4} .t-6x2{grid-column:span 6;grid-row:span 2}
+  .t-3x4{grid-column:span 3;grid-row:span 4} .t-3x2{grid-column:span 3;grid-row:span 2}
+  .t-head{display:flex;align-items:flex-start;padding:24px}
+  .t-head h2{font-size:clamp(2.25rem,4vw,3.75rem)}
+  /* close-up fragments */
+  .banner{display:flex;gap:.7em;align-items:flex-start;background:rgba(246,246,248,.96);color:#1d1d1f;border-radius:.9em;padding:.8em 1em;max-width:24em;white-space:normal;
+          box-shadow:0 .4em 1.6em rgba(0,0,0,.18)} /* taste-skill-ignore: a macOS banner floats */
+  .banner img{width:2.4em;height:2.4em;border-radius:.55em;flex:none}
+  .banner b{display:block;font-size:.95em;font-weight:700}
+  .banner p{font-size:.85em;line-height:1.3;color:#3a3a3e}
+  .banner small{margin-left:auto;font-size:.7em;color:#6e6e73}
+  .row{display:flex;align-items:center;gap:.6em;background:#2f3037;border-radius:.4em;padding:.4em .7em;font-size:1em;color:#f2f2f4}
+  .row + .row{margin-top:.2em;background:transparent}
+  .row .lamp{width:.6em;height:.6em}
+  .row em{font-style:normal;margin-left:auto;opacity:.7;font-size:.85em}
+  .toggle{display:flex;align-items:center;gap:.6em;font-weight:500}
+  .toggle .sw{width:2.2em;height:1.3em;border-radius:999px;background:var(--dark);position:relative;flex:none}
+  .toggle .sw::after{content:"";position:absolute;top:.15em;right:.15em;width:1em;height:1em;border-radius:50%;background:#fff}
+  .fig{font-weight:700;letter-spacing:-.06em;line-height:.8}
+  .chip{display:inline-flex;align-items:center;gap:.18em}
+  .chip .mdot{width:.42em;height:.42em}
+  @media (max-width:900px){
+    .board{grid-template-columns:repeat(2,1fr);grid-auto-rows:28vw;gap:6px;padding:6px}
+    .t-head{grid-column:span 2;grid-row:span 2}
+    .t-head h2{font-size:9.5vw}
+    .t-6x4{grid-column:span 2;grid-row:span 3}
+    .t-6x2{grid-column:span 2;grid-row:span 2}
+    .t-3x4,.t-3x2{grid-column:span 1;grid-row:span 2}
+    .t-wide-m{grid-column:span 2}
+    .tile .cap{left:14px;right:14px;bottom:14px}
+    .tile .cap b{font-size:1rem}
+    .tile .cap span{font-size:.8125rem}
+    .row em{display:none}
+  }
 
+  /* ---------- MOODS: index with preview ---------- */
+  .moods{display:grid;grid-template-columns:1.3fr 1fr;gap:var(--margin);padding:clamp(120px,16vh,200px) var(--margin)}
+  .moods h2{font-size:var(--step-head);margin-bottom:.5em}
+  .moods .intro{max-width:44ch;color:var(--ink);margin-bottom:40px}
+  .index{list-style:none}
+  .index li{display:flex;align-items:baseline;gap:.5em 1em;flex-wrap:wrap;padding:.28em 0;cursor:default;transition:opacity .24s}
+  .index .name{font-size:clamp(2.4rem,5.4vw,5.5rem);font-weight:700;letter-spacing:-.05em;line-height:.95}
+  .index .when{font-size:var(--step-body);color:var(--ink-soft)}
+  .index .name .lamp{width:.32em;height:.32em;margin-right:.18em;vertical-align:.12em}
+  .frame{position:sticky;top:15vh;align-self:start;aspect-ratio:1;max-height:70vh;border-radius:50%;
+         background:var(--ground-2);overflow:hidden;--f:100%}
+  .frame .crop{position:absolute;inset:16%;opacity:0;transition:opacity .24s ease}
+  .frame .crop.is-on{opacity:1}
+  .crop img,.inline-crop img{position:absolute;top:0;height:100%;width:auto;max-width:none}
+  .inline-crop{display:none}
+  @media (hover:hover) and (pointer:fine){ .index:hover li:not(:hover){opacity:.32} }
+  @media (max-width:900px), (hover:none){
+    .moods{grid-template-columns:1fr}
+    .frame{display:none}
+    .inline-crop{display:block;position:relative;overflow:hidden;width:3.2rem;height:3.2rem;flex:none;align-self:center}
+    .index li{align-items:center;padding:.5em 0}
+    .index .name{font-size:clamp(2.2rem,11vw,3.4rem)}
+    .index .when{flex-basis:100%;padding-left:4.2rem;margin-top:-.4em}
+  }
+
+  /* ---------- HOW IT WORKS: one bar ---------- */
+  .how{padding:0 var(--margin) clamp(120px,16vh,200px)}
+  .how h2{font-size:clamp(3rem,6.4vw,6.5rem);margin-bottom:64px;max-width:11em}
+  .bar{display:flex;gap:6px}
+  .seg{flex:var(--g) 1 0;min-width:12%}
+  .seg .block{height:22vh;min-height:150px;background:var(--c);color:var(--dark);border-radius:999px;padding:20px 28px;
+              display:flex;align-items:center;font-size:clamp(1.25rem,2vw,1.875rem);font-weight:700;letter-spacing:-.03em;line-height:1}
+  .seg p{margin-top:18px;max-width:24ch;font-size:var(--step-body);padding-left:6px}
+  .how .after{margin-top:56px;max-width:60ch;color:var(--ink-soft)}
+  @media (max-width:760px){
+    .how h2{font-size:11vw}
+    .bar{flex-direction:column}
+    .seg .block{height:auto;min-height:0;padding:22px 24px;border-radius:28px}
+    .seg[data-k=r] .block{min-height:22svh} .seg[data-k=y] .block{min-height:10svh} .seg[data-k=g] .block{min-height:14svh}
+    .seg .block{align-items:flex-start;flex-direction:column;gap:10px;font-size:1.25rem}
+    .seg p{margin:0 0 22px}
+  }
+
+  /* ---------- INSTALL: first step, already open ---------- */
+  .install{min-height:90svh;background:var(--green);color:var(--dark);display:grid;grid-template-columns:repeat(12,1fr);
+           gap:0 var(--margin);padding:clamp(56px,8vh,96px) var(--margin) 40px;align-items:center}
+  .install .close{grid-column:1/6;align-self:end}
+  .install h2{font-size:clamp(3.5rem,7vw,7rem);line-height:.92}
+  .install .close p{margin-top:.9em;max-width:36ch;font-size:var(--step-body);font-weight:500}
+  .install .alt{display:flex;gap:10px 22px;flex-wrap:wrap;margin-top:22px;font-size:var(--step-small)}
+  .install .alt a{font-weight:500;text-underline-offset:3px}
+  .term{grid-column:7/13;align-self:center;width:100%;max-width:560px;justify-self:end;background:#1c1d21;color:#e9e9ee;border-radius:14px;
+        box-shadow:0 30px 80px rgba(0,0,0,.28);overflow:hidden} /* taste-skill-ignore: a terminal window floats */
+  .term .top{display:flex;align-items:center;gap:8px;padding:12px 14px;background:#26272d}
+  .term .top i{width:12px;height:12px;border-radius:50%;background:var(--c)}
+  .term .top span{margin-left:auto;margin-right:auto;font-size:.8125rem;color:#9a9aa3;transform:translateX(-22px)}
+  .term pre{padding:22px 22px 8px;white-space:pre-wrap;word-break:break-word;line-height:1.6;font-size:.9375rem}
+  .term pre .dim{color:#8b8b95}
+  .term pre .ok{color:var(--green)}
+  .term .act{padding:14px 22px 22px}
+  .term .act .pill{background:var(--green);color:var(--dark);width:100%;justify-content:center;font-weight:700}
+  @media (max-width:900px){
+    .install{grid-template-columns:1fr;align-content:start;gap:40px;min-height:84svh}
+    .install .close,.term{grid-column:1}
+    .install h2{font-size:13vw}
+    .term{justify-self:stretch;max-width:none}
+    .term .act .pill{padding:1.05em}
+  }
+
+  /* ---------- FOOTER: the mark, built large ---------- */
+  .foot{padding:clamp(56px,8vh,96px) var(--margin) 28px;background:var(--ground)}
+  .bigmark{display:grid;grid-template-columns:repeat(4,minmax(0,34svh));gap:4px}
+  .bigmark span{aspect-ratio:1;border-radius:50%;background:var(--c)}
+  .bigmark .bot{aspect-ratio:1;border-radius:24%;background:var(--yellow);display:flex;align-items:center;justify-content:center;gap:9%}
+  .bigmark .bot i{width:24%;height:52%;background:#fff;border-radius:50%;position:relative}
+  .bigmark .bot i::after{content:"";position:absolute;inset:25% 18%;background:var(--pupil);border-radius:50%}
+  .foot nav{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 2fr;gap:28px var(--margin);margin-top:56px;font-size:.9375rem}
+  .foot nav b{display:block;font-weight:500;margin-bottom:8px}
+  .foot nav a{display:block;color:var(--ink-soft);text-decoration:none;padding:3px 0;transition:color .2s}
+  .foot nav a:hover{color:var(--ink)}
+  .foot nav p{color:var(--ink-soft)}
+  .foot .last{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:56px;font-size:var(--step-small);color:var(--ink-soft)}
+  .foot .last .pill{background:var(--ground-3);font-size:var(--step-small);padding:.6em 1.1em}
+  @media (max-width:760px){
+    .foot nav{grid-template-columns:1fr 1fr}
+    .foot nav .about{grid-column:1/-1}
+  }
+
+  /* ---------- entrances ---------- */
+  @media (prefers-reduced-motion:no-preference){
+    .js [data-reveal]{opacity:0;transform:translateY(24px);transition:opacity .7s var(--ease-out),transform .7s var(--ease-out);transition-delay:calc(var(--i,0) * 75ms)}
+    .js [data-reveal].is-in{opacity:1;transform:none}
+    .js .bigmark span,.js .bigmark .bot{transform:scale(.6);opacity:0;transition:transform .7s var(--ease-out),opacity .5s;transition-delay:calc(var(--i,0) * 90ms)}
+    .js .bigmark.is-in span,.js .bigmark.is-in .bot{transform:none;opacity:1}
+  }
   @media (prefers-reduced-motion:reduce){
-    .scroll .chev{animation:none}
-    .eye,.pupil,.hero,.status{transition:none}
+    html{scroll-behavior:auto}
+    .eye,.pupil,.hero,.showcase{transition:none}
   }
 </style>
 </head>
 <body>
 
+<main>
   <section class="hero" id="top">
-    <div class="hook">Know when Claude&nbsp;Code needs you</div>
+    <h1 class="sr">Claude Traffic Light</h1>
     <div class="face" aria-hidden="true">
       <div class="eye"><div class="pupil"></div></div>
       <div class="eye"><div class="pupil"></div></div>
     </div>
-    <div class="status" id="status">ready</div>
-    <a class="scroll" href="#about">scroll<span class="chev"></span></a>
+    <div class="hero-row"><a class="pill" href="#install">Install</a></div>
+    <a class="scroll" href="#menu-bar">scroll<span class="chev"></span></a>
     <div class="lights" aria-label="switch state">
       <button data-i="1" style="--c:#FF453A" title="working" aria-label="working"></button>
       <button data-i="2" style="--c:#FFD60A" title="needs you" aria-label="needs you"></button>
@@ -140,82 +285,152 @@
     </div>
   </section>
 
-  <section class="about" id="about">
-    <h1>Claude Traffic Light</h1>
-    <p class="tag">A tiny macOS menu bar bot that turns <b>yellow</b> the moment any Claude&nbsp;Code session is waiting on you.</p>
-
-    <div class="states">
-      <div class="chip"><span class="dot red"></span> Working</div>
-      <div class="chip"><span class="dot yellow"></span> Needs you</div>
-      <div class="chip"><span class="dot green"></span> Ready</div>
-    </div>
-
-    <p class="desc">Run a few sessions at once and stop checking terminals — one glance shows the most
-      urgent state across all of them, with optional sound and notification alerts the moment a
-      session is blocked or done. No setup — it plugs straight into Claude&nbsp;Code, and clicking
-      a session jumps to its terminal.</p>
-
-    <div class="mb-demo">
-      <p class="mb-title">In your menu bar</p>
-
-      <div class="mb-row">
-        <div class="mbar">
-          <span class="mbot" style="--c:var(--red);--hf:1.28"><i></i><i></i></span>
-          <span class="glyphs">
-            <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
-            <svg viewBox="0 0 25 12" width="25" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="21" height="11" rx="3" fill="none" stroke="#d9d9de"/><rect x="2" y="2" width="13" height="8" rx="1.6" fill="#d9d9de"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="#d9d9de"/></svg>
-            <span class="clock">Mon 14:32</span>
-          </span>
-        </div>
-        <p class="mb-cap">One session, working — just the bot, focused.</p>
+  <section class="showcase" id="menu-bar" aria-labelledby="mb-h">
+    <div class="copy">
+      <h2 id="mb-h" data-reveal>one dot per shell</h2>
+      <p class="lede" id="mb-lede" aria-live="polite" data-reveal style="--i:1">1 needs you · 3 working · 2 ready</p>
+      <div class="controls" data-reveal style="--i:2">
+        <button class="pill" type="button" data-act="start">start a session</button>
+        <button class="pill" type="button" data-act="ask">ask for permission</button>
+        <button class="pill" type="button" data-act="answer">approve it</button>
+        <button class="pill" type="button" data-act="finish">finish a turn</button>
+        <button class="pill quiet" type="button" data-act="close">close one</button>
       </div>
-
-      <div class="mb-row">
-        <div class="mbar">
-          <span class="mbot" style="--c:var(--red);--hf:1.15"><i></i><i></i></span>
-          <span class="mdots">
-            <span class="mgroup"><span class="mdot" style="--c:var(--yellow)"></span></span>
-            <span class="mgroup"><span class="mdot" style="--c:var(--red)"></span><span class="mdot" style="--c:var(--red)"></span><span class="mdot" style="--c:var(--red)"></span></span>
-            <span class="mgroup"><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span></span>
-          </span>
-          <span class="glyphs">
-            <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
-            <svg viewBox="0 0 25 12" width="25" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="21" height="11" rx="3" fill="none" stroke="#d9d9de"/><rect x="2" y="2" width="13" height="8" rx="1.6" fill="#d9d9de"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="#d9d9de"/></svg>
-            <span class="clock">Mon 14:32</span>
-          </span>
-        </div>
-        <p class="mb-cap">Six sessions — a dot per shell, most urgent first: <b>1 needs you</b> · 3 working · 2 ready.</p>
+      <p class="hint" data-reveal style="--i:3">most urgent first. past six shells the rest fold into a +N.</p>
+    </div>
+    <div class="bigbar" data-ui aria-hidden="true">
+      <div class="mbar">
+        <span class="mbot" id="mb-bot"><i></i><i></i></span>
+        <span class="mdots" id="mb-dots"></span>
+        <span class="mglyphs">
+          <svg viewBox="0 0 16 12"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
+          <span class="mclock">Mon 14:32</span>
+        </span>
       </div>
-
-      <div class="mb-row">
-        <div class="mbar">
-          <span class="mbot" style="--c:var(--green);--hf:1.45"><i></i><i></i></span>
-          <span class="mdots">
-            <span class="mgroup"><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span></span>
-          </span>
-          <span class="glyphs">
-            <svg viewBox="0 0 16 12" width="16" height="12" aria-hidden="true"><g fill="none" stroke="#d9d9de" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 13 0"/><path d="M4 7a6.4 6.4 0 0 1 8 0"/></g><circle cx="8" cy="10" r="1.5" fill="#d9d9de"/></svg>
-            <svg viewBox="0 0 25 12" width="25" height="12" aria-hidden="true"><rect x="0.5" y="0.5" width="21" height="11" rx="3" fill="none" stroke="#d9d9de"/><rect x="2" y="2" width="13" height="8" rx="1.6" fill="#d9d9de"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="#d9d9de"/></svg>
-            <span class="clock">Mon 14:32</span>
-          </span>
-        </div>
-        <p class="mb-cap">Everything ready — come collect your diffs.</p>
-      </div>
-
-      <p class="mb-note">More than six shells? The extra dots become a “+N”.</p>
     </div>
-
-    <div class="install" id="install" title="Click to copy">
-      <span class="cmd">brew install --cask mitchelmckee/tap/claude-traffic-light</span>
-      <span class="copy" id="copy">copy</span>
-    </div>
-
-    <div class="actions">
-      <a class="btn" href="https://github.com/MitchelMckee/claude-traffic-light">View on GitHub&nbsp;→</a>
-    </div>
-
-    <p class="foot">Free &amp; open source · macOS 13+ · <a href="https://github.com/MitchelMckee/claude-traffic-light/releases/latest">Download the DMG</a></p>
   </section>
+
+  <section id="features" aria-labelledby="ft-h">
+    <div class="board">
+      <div class="tile t-6x2 t-head" style="--bg:var(--ground-2)"><h2 id="ft-h" data-reveal>small, but it notices</h2></div>
+
+      <div class="tile t-6x4" style="--bg:var(--yellow);--fg:var(--dark);--i:1" data-reveal>
+        <div class="ui" data-ui style="font-size:clamp(15px,1.5vw,22px);left:24px;right:24px;top:24px">
+          <div class="banner"><img src="img/app-icon.png" alt="" width="64" height="64"><div><b>api-gateway needs you</b><p>Claude is waiting on a permission prompt.</p></div><small>now</small></div>
+        </div>
+        <div class="cap"><b>instant alerts</b><span>a sound and a banner the moment a session is blocked or done, so you can walk away from long tasks.</span></div>
+      </div>
+
+      <div class="tile t-3x4" style="--bg:var(--ground-3)">
+        <div class="ui" data-ui style="font-size:clamp(15px,1.4vw,21px);left:20px;right:20px;top:20px">
+          <div class="row"><span class="lamp" style="--c:var(--yellow)"></span>api-gateway<em>needs you</em></div>
+          <div class="row"><span class="lamp" style="--c:var(--red)"></span>web<em>working</em></div>
+        </div>
+        <div class="cap"><b>click to focus</b><span>pick a session and jump straight to its terminal. named by project folder.</span></div>
+      </div>
+
+      <div class="tile t-3x2" style="--bg:var(--green);--fg:var(--dark)">
+        <div class="ui fig" data-ui style="font-size:clamp(72px,6.6vw,104px);right:20px;top:14px">3ms</div>
+        <div class="cap"><b>instant</b><span>a file watcher, not polling.</span></div>
+      </div>
+
+      <div class="tile t-3x2 t-wide-m" style="--bg:var(--ground-2)">
+        <div class="ui" data-ui style="font-size:clamp(56px,5.6vw,92px);right:24px;top:20px">
+          <span class="chip"><span class="mdot" style="--c:var(--green)"></span><span class="mdot" style="--c:var(--green)"></span><span class="mplus">+4</span></span>
+        </div>
+        <div class="cap"><b>any number of shells</b><span>six dots, then the rest fold into a +N.</span></div>
+      </div>
+
+      <div class="tile t-6x2" style="--bg:var(--red);--fg:var(--dark)">
+        <div class="ui toggle" data-ui style="font-size:clamp(18px,2.1vw,32px);left:24px;top:24px"><span class="sw"></span>alert when a turn finishes</div>
+        <div class="cap"><b>every alert is its own switch</b><span>permission prompts, finished turns, and a volume slider to keep it subtle.</span></div>
+      </div>
+
+      <div class="tile t-6x2" style="--bg:var(--ground-3)">
+        <div class="ui fig" data-ui style="font-size:clamp(88px,9vw,150px);right:24px;top:12px">200kb</div>
+        <div class="cap"><b>one native binary</b><span>no runtime dependencies. the hooks are plain bash and jq.</span></div>
+      </div>
+
+      <div class="tile t-6x2" style="--bg:var(--ground-2)">
+        <div class="ui" data-ui style="font-size:clamp(36px,3.6vw,60px);right:24px;top:20px"><img src="img/mascot-states.png" alt="The bot in red, yellow and green" width="730" height="192" style="height:1.6em;width:auto"></div>
+        <div class="cap"><b>reads claude code directly</b><span>state comes from claude code's own hooks. nothing to configure.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="moods" id="moods" aria-labelledby="md-h">
+    <div>
+      <h2 id="md-h" data-reveal>he has moods</h2>
+      <p class="intro" data-reveal style="--i:1">the body takes the colour most of your shells are in. the mood is all in the eyes, which squish to show how things are going.</p>
+      <ul class="index" id="mood-index">
+        <li data-m="0" data-reveal style="--i:2"><span class="inline-crop"><img src="img/moods.png" alt="" width="999" height="192"></span><span class="name"><span class="lamp" style="--c:var(--green)"></span>chill</span><span class="when">round and calm, everything quiet</span></li>
+        <li data-m="1" data-reveal style="--i:3"><span class="inline-crop"><img src="img/moods.png" alt="" width="999" height="192"></span><span class="name"><span class="lamp" style="--c:var(--yellow)"></span>alert</span><span class="when">popped tall, a session needs you</span></li>
+        <li data-m="2" data-reveal style="--i:4"><span class="inline-crop"><img src="img/moods.png" alt="" width="999" height="192"></span><span class="name"><span class="lamp" style="--c:var(--red)"></span>under pressure</span><span class="when">narrowed, a few sessions working</span></li>
+        <li data-m="3" data-reveal style="--i:5"><span class="inline-crop"><img src="img/moods.png" alt="" width="999" height="192"></span><span class="name"><span class="lamp" style="--c:var(--red)"></span>stressed</span><span class="when">squished flat, everything running at once</span></li>
+      </ul>
+    </div>
+    <div class="frame" id="mood-frame" aria-hidden="true">
+      <div class="crop is-on"><img src="img/moods.png" alt="" width="999" height="192"></div>
+      <div class="crop"><img src="img/moods.png" alt="" width="999" height="192"></div>
+      <div class="crop"><img src="img/moods.png" alt="" width="999" height="192"></div>
+      <div class="crop"><img src="img/moods.png" alt="" width="999" height="192"></div>
+    </div>
+  </section>
+
+  <section class="how" id="how" aria-labelledby="hw-h">
+    <h2 id="hw-h" data-reveal>red, yellow, green, repeat</h2>
+    <div class="bar" data-ui>
+      <div class="seg" data-k="r" style="--g:5" data-reveal>
+        <div class="block" style="--c:var(--red)">as long as claude works</div>
+        <p>first you send a prompt. every tool call keeps it red, so long builds never look idle.</p>
+      </div>
+      <div class="seg" data-k="y" style="--g:2;--i:1" data-reveal>
+        <div class="block" style="--c:var(--yellow)">until you answer</div>
+        <p>then a permission prompt turns it yellow. this is the one that matters.</p>
+      </div>
+      <div class="seg" data-k="g" style="--g:3;--i:2" data-reveal>
+        <div class="block" style="--c:var(--green)">five minutes</div>
+        <p>finally the turn ends and it goes green, fading to idle after five minutes.</p>
+      </div>
+    </div>
+    <p class="after" data-reveal>each claude code hook writes one tiny file per session. the app watches that folder and draws the most urgent state. plain shells, editors and ssh never fire a hook, so only claude code shows up.</p>
+  </section>
+
+  <section class="install" id="install" aria-labelledby="in-h">
+    <div class="close">
+      <h2 id="in-h" data-reveal>stop checking tabs</h2>
+      <p data-reveal style="--i:1">on first launch it wires up its claude code hooks, backing up your settings first. restart any open sessions and the bot is watching.</p>
+      <div class="alt" data-reveal style="--i:2">
+        <a href="https://github.com/MitchelMckee/claude-traffic-light/releases/latest">download the dmg</a>
+        <a href="https://github.com/MitchelMckee/claude-traffic-light">source on github</a>
+        <span>macOS 13+ · free and open source</span>
+      </div>
+    </div>
+    <div class="term" data-ui data-reveal style="--i:1">
+      <div class="top"><i style="--c:var(--red)"></i><i style="--c:var(--yellow)"></i><i style="--c:var(--green)"></i><span>zsh</span></div>
+<pre><span class="dim">~ %</span> brew install --cask mitchelmckee/tap/claude-traffic-light
+<span class="dim">==&gt; Installing dependencies: jq</span>
+<span class="ok">==&gt;</span> claude-traffic-light was successfully installed!
+<span class="dim">~ %</span> open -a ClaudeTrafficLight</pre>
+      <div class="act"><button class="pill" type="button" id="copy">copy the brew command</button></div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="bigmark" id="bigmark" aria-hidden="true">
+    <span style="--c:var(--red)"></span><span style="--c:var(--yellow);--i:1"></span><span style="--c:var(--green);--i:2"></span>
+    <div class="bot" style="--i:3"><i></i><i></i></div>
+  </div>
+  <nav aria-label="Footer">
+    <div><b>get it</b><a href="#install">homebrew</a><a href="https://github.com/MitchelMckee/claude-traffic-light/releases/latest">dmg download</a><a href="https://github.com/MitchelMckee/claude-traffic-light#build-from-source">build from source</a></div>
+    <div><b>project</b><a href="https://github.com/MitchelMckee/claude-traffic-light">github</a><a href="https://github.com/MitchelMckee/claude-traffic-light/issues">report a bug</a><a href="https://github.com/MitchelMckee/claude-traffic-light/blob/main/LICENSE">mit licence</a></div>
+    <div><b>page</b><a href="#menu-bar">menu bar</a><a href="#moods">moods</a><a href="#how">how it works</a></div>
+    <div><b>made by</b><a href="https://mjkm.co.uk">mitchel mckee</a></div>
+    <div class="about"><p>a fan-made utility, not affiliated with anthropic. “claude” and the mascot likeness belong to their respective owners.</p></div>
+  </nav>
+  <div class="last"><span>© 2026 mitchel mckee</span><a class="pill" href="#top">back to top</a></div>
+</footer>
 
 <script>
   // ---- eye engine: a small port of the app's EyeAnimator ----
@@ -356,25 +571,10 @@
   addEventListener('touchmove', e => { const t=e.touches[0]; point(t.clientX, t.clientY); }, {passive:true});
   addEventListener('resize', render);
   render();
-  if (!reduceMotion) setInterval(tick, 83);                            // ~12 fps, same tempo as the app
-
-  // click-to-copy install command
-  const inst = document.getElementById('install'), copy = document.getElementById('copy');
-  const CMD = 'brew install --cask mitchelmckee/tap/claude-traffic-light';
-  inst.addEventListener('click', async () => {
-    let ok = true;
-    try{ await navigator.clipboard.writeText(CMD); }
-    catch(e){
-      // fallback for browsers without the async clipboard API
-      const ta = document.createElement('textarea');
-      ta.value = CMD; ta.setAttribute('readonly',''); ta.style.position = 'fixed'; ta.style.opacity = '0';
-      document.body.appendChild(ta); ta.select();
-      try{ ok = document.execCommand('copy'); }catch(_){ ok = false; }
-      ta.remove();
-    }
-    copy.textContent = ok ? 'copied!' : 'copy failed';
-    setTimeout(()=>copy.textContent='copy', 1600);
-  });
+  // ~12 fps, same tempo as the app; paused while the hero is off screen
+  let heroVisible = true;
+  new IntersectionObserver(([e]) => heroVisible = e.isIntersecting).observe(document.querySelector('.hero'));
+  if (!reduceMotion) setInterval(() => { if (heroVisible) tick(); }, 83);
 
   // ---- cycle through the three states: colour + eye mood + label ----
   const STATES = [
@@ -383,7 +583,6 @@
     {bg:'#FFD60A', squish:1.18, label:'needs you', mood:'alert',    react:'alert'},     // yellow — wide awake
   ];
   const hero = document.querySelector('.hero');
-  const statusEl = document.getElementById('status');
   const lightBtns = [...document.querySelectorAll('.lights button')];
   let si = 0;
   function applyState(i, interactive){
@@ -393,14 +592,96 @@
     eyes.forEach(e => e.style.setProperty('--squish', s.squish));
     mood = s.mood;
     if (interactive) { react(s.react); lastMove = Date.now(); }
-    statusEl.textContent = s.label;
-    statusEl.animate([{opacity:.25,transform:'translateX(-50%) scale(.95)'},
-                      {opacity:1, transform:'translateX(-50%) scale(1)'}], {duration:320, easing:'ease-out'});
     lightBtns.forEach(b => b.classList.toggle('on', +b.dataset.i === si));
   }
   lightBtns.forEach(b => b.addEventListener('click', () => applyState(+b.dataset.i, true)));
   const hStart = location.hash.slice(1);                       // #0/#1/#2 forces a state (for testing)
   applyState(hStart !== '' && !isNaN(+hStart) ? +hStart : Math.floor(Math.random() * STATES.length));
+
+  // ---- the live menu bar: sessions in, dots out ----
+  const COL = {y:'var(--yellow)', r:'var(--red)', g:'var(--green)'};
+  const FIELD = {y:'#FFD60A', r:'#FF453A', g:'#30D158'};
+  const NAME = {y:'needs you', r:'working', g:'ready'};
+  let shells = ['y','r','r','r','g','g'], born = -1;
+  const dotsEl = document.getElementById('mb-dots'), botEl = document.getElementById('mb-bot'),
+        ledeEl = document.getElementById('mb-lede'), showcase = document.querySelector('.showcase');
+  function drawBar(){
+    const n = {y:0, r:0, g:0}; shells.forEach(s => n[s]++);
+    const order = ['y','r','g'];                                   // most urgent first
+    const sorted = order.flatMap(k => Array(n[k]).fill(k));
+    const shown = sorted.slice(0, 6), extra = sorted.length - shown.length;
+    dotsEl.innerHTML = '';
+    if (sorted.length > 1) order.forEach(k => {
+      const c = shown.filter(s => s === k).length; if (!c) return;
+      const g = document.createElement('span'); g.className = 'mgroup';
+      for (let j = 0; j < c; j++){ const d = document.createElement('span'); d.className = 'mdot'; d.style.setProperty('--c', COL[k]);
+        if (k === born && j === c - 1) d.classList.add('is-new'); g.append(d); }
+      dotsEl.append(g);
+    });
+    if (extra > 0){ const p = document.createElement('span'); p.className = 'mplus'; p.textContent = '+' + extra; dotsEl.append(p); }
+    // the body takes the colour most shells are in (ties go to the more urgent)
+    const body = shells.length ? order.reduce((a, k) => n[k] > n[a] ? k : a, 'y') : 'g';
+    botEl.style.setProperty('--c', COL[body]);
+    // eyes: tall when someone needs you, narrowed under load, flat when everything is running
+    const hf = n.y ? 1.65 : (n.r && n.r === shells.length && n.r >= 3) ? .8 : n.r ? 1.15 : 1.45;
+    botEl.style.setProperty('--hf', hf);
+    showcase.style.setProperty('--field', FIELD[body]);
+    ledeEl.textContent = shells.length ? order.filter(k => n[k]).map(k => `${n[k]} ${NAME[k]}`).join(' · ') : 'no sessions open';
+    born = -1;
+  }
+  const ACTIONS = {
+    start(){ shells.push('r'); born = 'r'; },
+    ask(){ const i = shells.indexOf('r'); if (i > -1){ shells[i] = 'y'; born = 'y'; } },
+    answer(){ const i = shells.indexOf('y'); if (i > -1){ shells[i] = 'r'; born = 'r'; } },
+    finish(){ const i = shells.indexOf('r'); if (i > -1){ shells[i] = 'g'; born = 'g'; } },
+    close(){ if (shells.length){ const i = shells.lastIndexOf('g'); shells.splice(i > -1 ? i : shells.length - 1, 1); } },
+  };
+  document.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', () => { ACTIONS[b.dataset.act](); drawBar(); }));
+  drawBar();
+
+  // ---- moods: pointing at a row shows that face in the frame ----
+  // face boxes in moods.png (999×192): left edge of each face, in image pixels
+  const FACE_X = [4, 273, 542, 811], FACE_W = 184;
+  function cropTo(wrap, m){
+    const img = wrap.querySelector('img'), h = wrap.clientHeight, s = h / 192;
+    img.style.left = `${(wrap.clientWidth - FACE_W * s) / 2 - FACE_X[m] * s}px`;
+  }
+  const crops = [...document.querySelectorAll('#mood-frame .crop')];
+  const placeCrops = () => {
+    crops.forEach((c, m) => cropTo(c, m));
+    document.querySelectorAll('#mood-index li').forEach(li => cropTo(li.querySelector('.inline-crop'), +li.dataset.m));
+  };
+  addEventListener('resize', placeCrops); addEventListener('load', placeCrops); placeCrops();
+  document.querySelectorAll('#mood-index li').forEach(li => li.addEventListener('pointerenter', () =>
+    crops.forEach((c, m) => c.classList.toggle('is-on', m === +li.dataset.m))));
+
+  // ---- copy the install command ----
+  const CMD = 'brew install --cask mitchelmckee/tap/claude-traffic-light';
+  const copyBtn = document.getElementById('copy');
+  copyBtn.addEventListener('click', async () => {
+    let ok = true;
+    try { await navigator.clipboard.writeText(CMD); }
+    catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = CMD; ta.setAttribute('readonly',''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+      ta.remove();
+    }
+    copyBtn.textContent = ok ? 'copied, paste it in your terminal' : 'copy failed, select the command above';
+    setTimeout(() => copyBtn.textContent = 'copy the brew command', 2200);
+  });
+
+  // ---- entrances: reveal once, never leave content hidden ----
+  (() => {
+    const targets = document.querySelectorAll('[data-reveal], #bigmark');
+    if (!('IntersectionObserver' in window)) { targets.forEach(el => el.classList.add('is-in')); return; }
+    const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting){ e.target.classList.add('is-in'); io.unobserve(e.target); } }),
+      {rootMargin:'0px 0px -10% 0px', threshold:.1});
+    targets.forEach(el => io.observe(el));
+    addEventListener('load', () => setTimeout(() => targets.forEach(el => {
+      const r = el.getBoundingClientRect(); if (r.top < innerHeight && r.bottom > 0) el.classList.add('is-in'); }), 2500));
+  })();
 </script>
 </body>
 </html>

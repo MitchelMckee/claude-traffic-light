@@ -11,3 +11,9 @@ mascot-mask.png
 .vscode/
 .idea/
 *.swp
+
+# design tooling output
+.taste-skill/
+
+# Cloudflare wrangler cache
+.wrangler/

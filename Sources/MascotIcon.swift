@@ -12,6 +12,11 @@ struct EyePose {
     var blink: CGFloat = 0       // 0 = open, 1 = closed
     var converge: CGFloat = 0    // pupils pull toward the nose (crossed eyes); 0 = none
     var pupil: CGFloat = 1       // pupil size multiplier (>1 dilated/excited, <1 pinprick/stressed)
+    // Whites-follow layer: each eyeball drifts in its pupil's direction at a
+    // fraction of the travel, eased so it lands a beat behind (depth cue).
+    // Same units as `look`; per eye because converge splits the pupils.
+    var whiteL: CGVector = .zero
+    var whiteR: CGVector = .zero
     static let neutral = EyePose()
 }
 
@@ -67,8 +72,8 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
         let hf   = eyeHeightFactor(mood)
         var leftPose = pose;  leftPose.look.dx  += pose.converge   // left pupil toward nose (right)
         var rightPose = pose; rightPose.look.dx -= pose.converge   // right pupil toward nose (left)
-        drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: leftPose)
-        drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: rightPose)
+        drawEye(cx: rect.midX - gap / 2 - eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: leftPose, white: pose.whiteL)
+        drawEye(cx: rect.midX + gap / 2 + eyeW / 2, cy: cy, eyeW: eyeW, hf: hf, pose: rightPose, white: pose.whiteR)
     }
 
     img.unlockFocus()
@@ -76,12 +81,22 @@ private func drawMascot(color: NSColor, height: CGFloat, pose: EyePose, mood: Mo
     return img
 }
 
-private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose: EyePose) {
+private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose: EyePose,
+                     white: CGVector = .zero) {
     let open = max(0, 1 - pose.blink)                  // blink is just a hard squish
     let eyeH = max(eyeW * 0.05, eyeW * hf * open)
 
+    // Pupil geometry first: the white's drift is measured in pupil travel, so
+    // the whole eyeball shifts, and the pupil's own glance rides inside it.
+    let pupilW = eyeW * 0.55 * min(1.5, max(0.5, pose.pupil))
+    let pupilH = pupilW * (eyeH / eyeW)
+    let maxOffX = max(0, (eyeW - pupilW) / 2 * 0.82)
+    let maxOffY = max(0, (eyeH - pupilH) / 2 * 0.82)
+    let ecx = cx + white.dx * maxOffX                  // eyeball centre, a beat behind the pupil
+    let ecy = cy + white.dy * maxOffY
+
     // Eye (white, a vertical oval squished by mood/blink).
-    let eyeRect = NSRect(x: cx - eyeW / 2, y: cy - eyeH / 2, width: eyeW, height: eyeH)
+    let eyeRect = NSRect(x: ecx - eyeW / 2, y: ecy - eyeH / 2, width: eyeW, height: eyeH)
     let path = NSBezierPath(ovalIn: eyeRect)
     NSColor.white.setFill()
     path.fill()
@@ -90,12 +105,8 @@ private func drawEye(cx: CGFloat, cy: CGFloat, eyeW: CGFloat, hf: CGFloat, pose:
     path.stroke()
 
     // Pupil (dark, squished with the eye, moved by the glance, sized by emotion).
-    let pupilW = eyeW * 0.55 * min(1.5, max(0.5, pose.pupil))
-    let pupilH = pupilW * (eyeH / eyeW)
-    let maxOffX = max(0, (eyeW - pupilW) / 2 * 0.82)
-    let maxOffY = max(0, (eyeH - pupilH) / 2 * 0.82)
-    let px = cx + pose.look.dx * maxOffX
-    let py = cy + pose.look.dy * maxOffY
+    let px = ecx + pose.look.dx * maxOffX
+    let py = ecy + pose.look.dy * maxOffY
     NSColor(white: 0.13, alpha: 1).setFill()
     NSBezierPath(ovalIn: NSRect(x: px - pupilW / 2, y: py - pupilH / 2, width: pupilW, height: pupilH)).fill()
 }

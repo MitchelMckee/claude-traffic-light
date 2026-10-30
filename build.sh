@@ -22,8 +22,8 @@ echo "==> Installing Info.plist…"
 cp Info.plist "${BUNDLE}/Contents/Info.plist"
 
 echo "==> Bundling hooks (for first-launch self-setup)…"
-cp hooks/cc-hook.sh hooks/setup-hooks.sh "${RES}/"
-chmod +x "${RES}/cc-hook.sh" "${RES}/setup-hooks.sh"
+cp hooks/cc-hook.sh hooks/cc-statusline.sh hooks/setup-hooks.sh "${RES}/"
+chmod +x "${RES}/cc-hook.sh" "${RES}/cc-statusline.sh" "${RES}/setup-hooks.sh"
 
 if [ -f assets/AppIcon.icns ]; then
   cp assets/AppIcon.icns "${RES}/AppIcon.icns"
